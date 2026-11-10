@@ -12,13 +12,20 @@ import type { ContractDeviation, ContractResponse, ContractRiskSummary, IssueFix
 
 const h = vi.hoisted(() => ({
   notify: vi.fn(),
+  perms: ['*'] as string[],
+  canEdit: true,
   contractsApi: { get: vi.fn(), comments: vi.fn(), edits: vi.fn(), deviations: vi.fn(), risk: vi.fn(), parties: vi.fn(), revisionRound: vi.fn(), editorConfig: vi.fn(), aiRedline: vi.fn(), draftIssueFixes: vi.fn(), issueFixJob: vi.fn(), acceptEdit: vi.fn(), rejectEdit: vi.fn(), versions: vi.fn(), lifecycleOptions: vi.fn(), reviewStatus: vi.fn(), retryReview: vi.fn() },
   workflowsApi: { runForContract: vi.fn(), lifecycle: vi.fn(), startForContract: vi.fn() },
   playbooksApi: { decideDeviation: vi.fn() },
+  obligationsApi: { extract: vi.fn() },
 }));
 
-vi.mock("@/lib/endpoints", () => ({ contractsApi: h.contractsApi, workflowsApi: h.workflowsApi, playbooksApi: h.playbooksApi }));
-vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Saket Gande", permissions: ["*"] } }) }));
+vi.mock("@/lib/endpoints", () => ({ contractsApi: h.contractsApi, workflowsApi: h.workflowsApi, playbooksApi: h.playbooksApi, obligationsApi: h.obligationsApi }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Saket Gande", permissions: h.perms } }) }));
+vi.mock("@/lib/screen-access", () => ({ useScreenAccess: () => ({ canEdit: h.canEdit }) }));
+vi.mock("@/components/contract-type-picker", () => ({
+  ContractTypePicker: (p: { contractId: string; suggested: string | null }) => <div data-testid="type-picker" data-contract={p.contractId} data-suggested={p.suggested ?? ""} />,
+}));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 vi.mock("@/components/ui", () => ({ CenterSpinner: () => <div>Loading</div>, ErrorState: () => <div>Error</div>, NotFound: () => <div>Not found</div> }));
 vi.mock("@/components/contract-document", () => ({
@@ -33,10 +40,17 @@ vi.mock("@/components/contract-document", () => ({
 vi.mock("@/components/revision-round", () => ({ REVISION_CSS: "", RevisionChanges: () => null, RevisionDecisions: () => null }));
 vi.mock("@/components/word-editor", () => ({ WORD_EDITOR_CSS: "", WordEditor: () => null }));
 vi.mock("@/components/clause-tree", () => ({ CLAUSE_TREE_CSS: "", ClauseTree: () => null }));
-vi.mock("@/components/lifecycle-view", () => ({
+vi.mock("@/components/lifecycle-view", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/lifecycle-view")>()),
   LIFECYCLE_STRIP_CSS: "",
   currentStage: () => "review",
-  LifecycleView: (p: { trailing?: ReactNode }) => <div data-testid="strip">{p.trailing}</div>,
+  // The real view has its own tests; here only what the page hands it: the Retry callback, when it hands one.
+  LifecycleView: (p: { trailing?: ReactNode; onAction?: (a: { kind: "extract_obligations"; label: string; contract_id: string }) => Promise<unknown> }) => (
+    <>
+      <div data-testid="strip">{p.trailing}</div>
+      {p.onAction ? <button onClick={() => p.onAction?.({ kind: "extract_obligations", label: "Retry", contract_id: "c-1" }).catch(() => undefined)}>strip → retry</button> : null}
+    </>
+  ),
 }));
 vi.mock("./_lifecycle-tab", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./_lifecycle-tab")>()),
@@ -84,12 +98,12 @@ const contract = {
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const invalidate = vi.spyOn(qc, "invalidateQueries");
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={qc}>
       <ClmWorkspace id="c-1" />
     </QueryClientProvider>,
   );
-  return { invalidate, qc };
+  return { invalidate, qc, unmount };
 }
 
 const fixJob = (over: Partial<IssueFixJob> = {}): IssueFixJob => ({
@@ -109,6 +123,8 @@ const keysOf = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c)
 
 beforeEach(() => {
   vi.resetAllMocks();
+  h.perms = ['*'];
+  h.canEdit = true;
   h.contractsApi.get.mockResolvedValue(contract);
   h.contractsApi.edits.mockResolvedValue([]);
   h.contractsApi.comments.mockResolvedValue([]);
@@ -126,6 +142,38 @@ beforeEach(() => {
   h.workflowsApi.runForContract.mockResolvedValue(null);
   h.workflowsApi.lifecycle.mockResolvedValue({});
   h.contractsApi.reviewStatus.mockResolvedValue(reviewStatus({ status: "succeeded", source: "ai", contract_version_id: "v-1" }));
+});
+
+describe("the no-recognised-type prompt", () => {
+  const needing = { ...contract, type_needed: true, suggested_type: "NDA", contract_type: null } as unknown as ContractResponse;
+
+  it("asks for a type when the server says one is needed and the viewer may edit", async () => {
+    h.contractsApi.get.mockResolvedValue(needing);
+    mount();
+    expect(await screen.findByText(/no recognised type/)).toBeInTheDocument();
+    expect(screen.getByTestId("type-picker")).toHaveAttribute("data-suggested", "NDA");
+  });
+
+  it("stays quiet without contract:update, without edit access, or when type_needed is false (a viewer must not see a prompt they can't act on)", async () => {
+    h.contractsApi.get.mockResolvedValue({ ...needing, type_needed: false });
+    const first = mount();
+    await screen.findByTestId("chat-stub");
+    expect(screen.queryByText(/no recognised type/)).toBeNull();
+    first.unmount();
+
+    h.contractsApi.get.mockResolvedValue(needing);
+    h.perms = ["contract:read"];
+    const second = mount();
+    await screen.findByTestId("chat-stub");
+    expect(screen.queryByText(/no recognised type/)).toBeNull();
+    second.unmount();
+
+    h.perms = ["contract:update"];
+    h.canEdit = false;
+    mount();
+    await screen.findByTestId("chat-stub");
+    expect(screen.queryByText(/no recognised type/)).toBeNull();
+  });
 });
 
 describe("the contract page and its chat", () => {
@@ -268,6 +316,36 @@ describe("the contract page and its chat", () => {
       ["issue-fix-job", "c-1"], // a playbook review run from the chat starts the drafting job
     ])
       expect(keys).toContain(JSON.stringify(k));
+  });
+});
+
+describe("Retry on the lifecycle strip's obligation row", () => {
+  it("hands the strip a Retry only to someone whose role may edit obligations (the server still decides)", async () => {
+    h.perms = ["contract:read"];
+    const { unmount } = mount();
+    await screen.findByTestId("strip");
+    expect(screen.queryByRole("button", { name: "strip → retry" })).toBeNull();
+    unmount();
+    h.perms = ["obligation:update"];
+    mount();
+    expect(await screen.findByRole("button", { name: "strip → retry" })).toBeInTheDocument();
+  });
+
+  it("starts the extraction for that contract and refetches the lifecycle rows afterwards", async () => {
+    h.obligationsApi.extract.mockResolvedValue({ job_id: "j-9", status: "queued", started: true });
+    const { invalidate } = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "strip → retry" }));
+    await waitFor(() => expect(h.obligationsApi.extract).toHaveBeenCalledWith("c-1"));
+    await waitFor(() => expect(keysOf(invalidate).map((k) => JSON.stringify(k))).toContain(JSON.stringify(["lifecycle-rows-contract", "c-1"])));
+  });
+
+  it("refetches even when the server refuses (a 409 means the row on screen is out of date)", async () => {
+    h.obligationsApi.extract.mockRejectedValue(new HttpError(409, "Obligations were already read for this version."));
+    const { invalidate } = mount();
+    await screen.findByTestId("strip");
+    invalidate.mockClear();
+    fireEvent.click(await screen.findByRole("button", { name: "strip → retry" }));
+    await waitFor(() => expect(keysOf(invalidate).map((k) => JSON.stringify(k))).toContain(JSON.stringify(["lifecycle-rows-contract", "c-1"])));
   });
 });
 

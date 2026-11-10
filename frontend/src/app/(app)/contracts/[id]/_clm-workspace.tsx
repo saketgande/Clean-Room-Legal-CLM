@@ -11,13 +11,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { contractsApi, workflowsApi, playbooksApi } from "@/lib/endpoints";
+import { contractsApi, workflowsApi, playbooksApi, obligationsApi } from "@/lib/endpoints";
 import { HttpError } from "@/lib/api";
 import { ContractDocument, DOCUMENT_PAGE_CSS } from "@/components/contract-document";
 import { REVISION_CSS, RevisionChanges, RevisionDecisions } from "@/components/revision-round";
 import { WORD_EDITOR_CSS, WordEditor } from "@/components/word-editor";
 import { CLAUSE_TREE_CSS, ClauseTree } from "@/components/clause-tree";
-import { currentStage, LIFECYCLE_STRIP_CSS, LifecycleView } from "@/components/lifecycle-view";
+import { aiIsWorking, currentStage, LIFECYCLE_STRIP_CSS, LifecycleView } from "@/components/lifecycle-view";
+import { canEditObligations } from "@/lib/obligation-access";
 import { CenterSpinner, ErrorState, NotFound } from "@/components/ui";
 import { buildSuggestions, editState, isHighRisk, reviewProgress, type ReviewProgress } from "@/lib/suggestions";
 import { describeFixJob, isFixJobActive } from "@/lib/issue-fixes";
@@ -29,6 +30,9 @@ import { ContractReviewNotice, REVIEW_NOTICE_CSS } from "@/components/review-not
 import { AFTER_ACCEPT, invalidateReviewQueries, reviewPollInterval } from "@/lib/review-retry";
 import { CLM_CSS } from "./_workspace-css";
 import { useToast } from "@/components/toast";
+import { useAuth } from "@/lib/auth";
+import { useScreenAccess } from "@/lib/screen-access";
+import { ContractTypePicker } from "@/components/contract-type-picker";
 import { riskBand, RISK_UNKNOWN_LABEL } from "@/lib/utils";
 import type { ContractDeviation, ContractEditResponse, ContractParty, RevisionChange } from "@/lib/types";
 
@@ -38,6 +42,8 @@ const SEV = (s: string) => { const v = (s || "").toLowerCase(); return v === "cr
 
 export function ClmWorkspace({ id }: { id: string }) {
   const { notify } = useToast();
+  const { user } = useAuth();
+  const { canEdit } = useScreenAccess("contracts");
   const { data: contract, isLoading: contractLoading, error: contractError } = useQuery({ queryKey: ["contract", id], queryFn: () => contractsApi.get(id) });
   const { data: edits } = useQuery({ queryKey: ["contract-edits", id], queryFn: () => contractsApi.edits(id) });
   const { data: deviations } = useQuery({ queryKey: ["contract-devs", id], queryFn: () => contractsApi.deviations(id) });
@@ -171,7 +177,21 @@ export function ClmWorkspace({ id }: { id: string }) {
   const { data: lifeRows } = useQuery({
     queryKey: ["lifecycle-rows-contract", id, run?.id, run?.status, run?.current_index],
     queryFn: () => workflowsApi.lifecycle({ contract_id: id }),
+    // While the AI is reading the signed copy (after Retry) keep looking until it settles.
+    refetchInterval: (q) => (aiIsWorking(q.state.data) ? 4000 : false),
   });
+  // Retry / Re-read on the Active stage's obligation row. The server decides who may; this only hides the button.
+  const readObligations = canEditObligations(user?.permissions)
+    ? async (action: { contract_id: string }) => {
+        try {
+          await obligationsApi.extract(action.contract_id);
+        } finally {
+          // Also when the server refuses (it answers 409 when the reading already succeeded): the row on screen is
+          // then out of date, and a button that keeps failing the same way helps nobody.
+          await qc.invalidateQueries({ queryKey: ["lifecycle-rows-contract", id] });
+        }
+      }
+    : undefined;
   // Drafting a fix for ONE issue ("Draft fix with AI" on its card): the assistant's edit engine turns
   // the issue into anchored suggested changes, tied to that issue, which then wait in this same Review
   // list. Asking for changes in the chat does the same thing.
@@ -449,8 +469,16 @@ export function ClmWorkspace({ id }: { id: string }) {
           {/* the 7-stage lifecycle; a stage opens its workflow steps */}
           <nav className="life" aria-label="Contract lifecycle">
             <LifecycleView compact strip trailing={stageChips} steps={run?.steps ?? []} comments={run?.comments ?? []} extras={lifeRows ?? {}}
-              current={currentStage({ run, contractStage: contract.lifecycle_stage })} />
+              onAction={readObligations} current={currentStage({ run, contractStage: contract.lifecycle_stage })} />
           </nav>
+
+          {/* the server decides type_needed (false for closed/archived); we only gate on who may edit */}
+          {contract.type_needed && canEdit && !!user && (user.permissions.includes("contract:update") || user.permissions.includes("*")) && (
+            <div className="ctx">
+              <div className="cx-t"><div><b>This contract has no recognised type.</b> Set it so type-based checks can find it.</div></div>
+              <div className="cx-act"><ContractTypePicker contractId={id} current={contract.contract_type} suggested={contract.suggested_type} /></div>
+            </div>
+          )}
 
           {roundOpen && round && (
             <div className="ctx">

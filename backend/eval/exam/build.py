@@ -1858,16 +1858,14 @@ AEGIS_CATALOGUE: dict[str, tuple[Plant, ...]] = {
         Plant(
             "limitation_of_liability",
             span(
-                "15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability",
-                "in addition to the amount in clause 15.1.",
+                "15.2 Subject to clauses 15.4 and 15.5, for the Provider's total aggregate liability",
+                "is not in addition to it.",
             ),
             None,
         ),
         Plant(
             "payment_terms",
-            "provided that no amount invoiced before the relevant period begins shall exceed "
-            "twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a "
-            "signed Order Form",
+            "after the period to which they relate",
             "and the Provider may invoice up to one hundred percent (100%) of the annual Fees in "
             "advance, at the start of each year",
         ),
@@ -2262,19 +2260,43 @@ def make_deals() -> dict[str, Deal]:
     return deals
 
 
+# The wording of all seven templates the exam was built from (2026-10-15): the app's shipped versions have
+# since been rewritten to be filled from the request (specs 007 and 008), and the exam's committed documents,
+# planted-change offsets, hashes and baseline all depend on this text, so each is rendered from a byte-for-byte
+# copy instead of the live template.
+_FROZEN = {
+    key: Path(__file__).with_name(f"{key}_2026-10-15.txt")
+    for key in ("nda", "msa", "vendor", "saas", "sow", "consultancy", "dpa")
+}
+
+
+def _template_body(kind: str) -> str | None:
+    """The wording the exam renders ``kind`` from: its frozen copy, else None (the app's shipped default)."""
+    return _FROZEN[kind].read_text(encoding="utf-8") if kind in _FROZEN else None
+
+
 def _render(deal: Deal) -> str:
     """The deal as the app would draft it, plus the registered-office recital Indian paper carries
     (and, for Indian law, the city whose courts have jurisdiction), plus the schedules of a long
     document."""
     # Imported here: drafting pulls the database layer in, and the exam process repoints its
     # settings before `build` gets this far (env.isolate).
-    from app.intake.drafting import render_document
+    from app.drafting_templates.service import default_body
+    from app.intake.drafting import template_values
 
     def draft(kind: str) -> str:
-        return render_document(
-            kind, company=deal.company, counterparty=deal.counterparty, effective=deal.written,
-            fields=deal.fields(),
-        )
+        # The exam's documents are pinned to the 2026-10-15 wording AND the values the app filled it with
+        # then: the deal's own law, and 30 days' payment for a consultancy. Spec 014 made every draft's law
+        # India and the default 45 days, so those two are set back here (the committed hashes depend on it).
+        values = template_values(kind, company=deal.company, counterparty=deal.counterparty,
+                                 effective=deal.written, fields=deal.fields())
+        values["governing_law"] = deal.law
+        # Spec 014 (PF-30) added a sentence after the value ("That figure is a commercial limit on spending
+        # only ..."); the committed hashes were taken without it.
+        values["value_sentence"] = values["value_sentence"].split(" That figure is a commercial limit")[0]
+        if kind == "consultancy":
+            values["payment_days"] = "30"
+        return (_template_body(kind) or default_body(kind)).format(**values)
 
     recital = (
         f"{deal.company} has its registered office at {deal.company_office}. "
@@ -2787,7 +2809,7 @@ def make_manifest(public: PublicBuild, built: ConstructedBuild) -> dict:
         "public": public.report,
         "constructed": built.report,
         "templates": {
-            key: hashlib.sha256(default_body(key).encode("utf-8")).hexdigest()
+            key: hashlib.sha256((_template_body(key) or default_body(key)).encode("utf-8")).hexdigest()
             for key in sorted(TEMPLATES)
         },
         "severity_source": {

@@ -26,7 +26,7 @@ from app.obligations.models import Obligation
 USER = SimpleNamespace(id="u-1", org_id="org-1")
 
 
-def _walled(self, *, contract_id, user):
+def _walled(self, *, contract_id, user, edit=False):
     raise HTTPException(404, "Contract not found")
 
 

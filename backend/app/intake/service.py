@@ -17,6 +17,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import and_, cast, func, select
@@ -26,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.contracts.blanks import first_blank
 from app.core.access import is_org_admin
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.auth_context import INTERNAL, AuthContext
@@ -152,7 +154,7 @@ _TRUE = {"true", "yes", "y", "1", "on"}
 _FALSE = {"false", "no", "n", "0", "off"}
 
 
-def _coerce_field(f, raw):
+def _coerce_field(f, raw, values=None, stored=None):
     """Return ``raw`` as the type the field declares, or raise 422.
 
     Forms post everything as strings, so a `number` arrives as "1500" and a
@@ -166,6 +168,13 @@ def _coerce_field(f, raw):
     if kind == "number":
         if isinstance(raw, bool):  # bool is an int subclass; not a number here
             raise HTTPException(422, f'Field "{f.label}" must be a number')
+        if getattr(f, "max_decimals", None) is not None:
+            # A question that limits decimals reads only what the wizard reads as a number: Python's own
+            # int()/float() would also take "1e3", "+25" and non-ASCII digits.
+            plain = _plain_number(raw)
+            if plain is None:
+                raise HTTPException(422, f'Field "{f.label}" must be a number')
+            return int(plain) if re.fullmatch(r"-?[0-9]+", plain) else float(plain)
         if isinstance(raw, int | float):
             return raw
         try:
@@ -212,11 +221,18 @@ def _coerce_field(f, raw):
         return [str(p) for p in picked]
 
     if kind == "select":
+        from app.intake.agreement_forms import options_for
+
         allowed = [
-            str(o.get("value")) for o in (f.options or []) if isinstance(o, dict) and "value" in o
+            str(o.get("value"))
+            for o in (options_for(f, values or {}) or [])
+            if isinstance(o, dict) and "value" in o
         ]
         text = str(raw).strip()
-        if allowed and text not in allowed:
+        # An answer the update leaves as filed stays, so a request holding an option dropped since
+        # ("30 days" on an MSA) can still be edited.
+        kept = stored is not None and text == stored.get(f.key)
+        if allowed and text not in allowed and not kept:
             raise HTTPException(
                 422, f'Field "{f.label}" must be one of: {", ".join(allowed)}'
             )
@@ -234,6 +250,16 @@ def _coerce_field(f, raw):
 
 _FIELD_TEXT_MAX = 20_000
 _EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+_PLAIN_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
+def _plain_number(raw) -> str | None:
+    """The answer as typed (commas removed, ends trimmed) when it is a plain ASCII number, else None.
+    A JSON number is read through Decimal so 1e16 is the digits it stands for."""
+    from app.intake.agreement_forms import tidy
+
+    text = format(Decimal(str(raw)), "f") if isinstance(raw, int | float) else tidy(str(raw).replace(",", ""))
+    return text if _PLAIN_NUMBER.fullmatch(text) else None
 
 
 def looks_like_email(text: str) -> bool:
@@ -245,7 +271,7 @@ def looks_like_email(text: str) -> bool:
     return not domain.startswith(".") and ".." not in domain
 
 
-def _validate_field_values(fields: list, values: dict | None) -> dict | None:
+def _validate_field_values(fields: list, values: dict | None, *, stored: dict | None = None) -> dict | None:
     """Enforce what the request's form declares, and return the cleaned values.
 
     Previously this checked required-ness and nothing else, so a `number` field
@@ -258,12 +284,17 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
     legitimately stores `channel_from`, `counterparty` and `gmail_thread_id`
     alongside the declared fields, and rejecting them would break email and
     Gmail ingestion.
+
+    ``stored`` is what an update is replacing (None for a new filing). A rule added after a request was
+    filed never refuses an answer the update leaves as it was: a total value of 0 or a bracketed scope
+    from before the rule is not the reason an unrelated edit fails.
     """
-    from app.intake.agreement_forms import shown
+    from app.intake.agreement_forms import shown, tidy
 
     if not fields:
         return values
     cleaned = dict(values or {})
+    tables = []
     for f in fields:
         if not shown(f, cleaned):
             # A question that doesn't apply (an NDA has no value) is neither
@@ -271,18 +302,94 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
             # otherwise reach the contract.
             cleaned.pop(f.key, None)
             continue
+        if f.kind == "rows":
+            tables.append(f)  # judged after the dates: a table's due dates sit in the services window
+            continue
         raw = cleaned.get(f.key)
-        missing = raw is None or (isinstance(raw, str) and not raw.strip())
+        # [] is no answer: a multi-tick with nothing ticked is as unanswered as an empty text box.
+        missing = raw is None or raw == [] or (isinstance(raw, str) and not raw.strip())
         if missing:
-            if f.required:
+            if f.required and not _may_stay_unanswered(f, cleaned, stored):
                 raise HTTPException(422, f'Field "{f.label}" is required')
             # An optional field left blank is absent, not an empty string —
             # otherwise "" would later fail the type check it skipped here.
             cleaned.pop(f.key, None)
             continue
-        cleaned[f.key] = _coerce_field(f, raw)
+        if (getattr(f, "legacy_single", False) and stored is not None and isinstance(raw, str)
+                and raw == stored.get(f.key)):
+            continue  # an older single choice ("Several" too) sent back as it was: kept verbatim
+        cleaned[f.key] = value = _coerce_field(f, raw, cleaned, stored)
+        if getattr(f, "max_length", None) and isinstance(value, str):
+            cleaned[f.key] = value = tidy(value)
+        if stored is None or value != stored.get(f.key):
+            _refuse_unsound_answer(f, value, raw, cleaned)
     _check_dates_in_order(fields, cleaned)
+    labels = {f.key: f.label for f in fields}
+    for f in tables:
+        _check_table(f, cleaned, labels, stored)
     return cleaned
+
+
+def _refuse_unsound_answer(f, value, raw, values: dict) -> None:
+    """The rules a question can add to its type, in this order: not too long, no blank brackets, a number
+    above a floor, no more decimals than allowed. ``raw`` is the answer as sent (the decimals are counted on
+    what was typed) and ``values`` the form's answers: a question with ``rules_when`` is judged by none of
+    these unless every rule matches. ponytail: the number type check for ``max_decimals`` and the tidying for
+    ``max_length`` run regardless of ``rules_when`` (no question combines them yet)."""
+    from app.intake.agreement_forms import rules_match
+
+    if not rules_match(getattr(f, "rules_when", None), values):
+        return
+    longest = getattr(f, "max_length", None)
+    if longest and isinstance(value, str) and len(value) > longest:
+        raise HTTPException(422, f'Field "{f.label}" is longer than {longest} characters')
+    blank = first_blank(value) if getattr(f, "no_blanks", False) and isinstance(value, str) else None
+    if blank:
+        raise HTTPException(
+            422, f'Field "{f.label}" contains {blank}, which reads as a blank to fill in later. '
+                 "Reword it without square brackets.")
+    floor = getattr(f, "min_exclusive", None)
+    if floor is not None and isinstance(value, int | float) and not value > floor:
+        raise HTTPException(422, f'Field "{f.label}" must be more than {floor}')
+    places = getattr(f, "max_decimals", None)
+    plain = _plain_number(raw) if places is not None else None
+    if plain and len(plain.partition(".")[2]) > places:
+        raise HTTPException(422, f'Field "{f.label}" can have at most {places} decimal places')
+
+
+def _may_stay_unanswered(f, cleaned: dict, stored: dict | None) -> bool:
+    """``older_may_lack``: on an update, a question added after the request was filed may stay unanswered
+    while the request has no answer to it and nothing its ``show`` rules read has changed. The moment one of
+    those answers changes (a fee basis switched to a rate, a "Will data leave India?" switched to Yes, the
+    paper switched to ours) the question is required like on a new filing."""
+    if stored is None or not getattr(f, "older_may_lack", False) or stored.get(f.key) not in (None, "", []):
+        return False
+    return all((cleaned.get(r["field"]) or None) == (stored.get(r["field"]) or None) for r in f.show or [])
+
+
+def _check_table(f, cleaned: dict, labels: dict, stored: dict | None) -> None:
+    """A table question (the SOW's deliverables) in place in ``cleaned``.
+
+    A new filing may not carry the old free-text answer. An older request keeps it exactly as filed and
+    may stay without rows until someone sets them — an unrelated update is not refused for that."""
+    from app.intake.agreement_forms import clean_rows, not_a_table, too_few_rows
+
+    old = f.legacy_key
+    if stored is None:
+        if old in cleaned:
+            raise not_a_table(f)
+    elif old in stored:
+        cleaned[old] = stored[old]
+    elif old in cleaned:
+        raise not_a_table(f)
+    raw = cleaned.get(f.key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        older_without_rows = stored is not None and old in stored and f.key not in stored
+        if f.required and not (older_without_rows or _may_stay_unanswered(f, cleaned, stored)):
+            raise too_few_rows(f)
+        cleaned.pop(f.key, None)
+        return
+    cleaned[f.key] = clean_rows(f, raw, cleaned, labels)
 
 
 def _check_dates_in_order(fields: list, cleaned: dict) -> None:
@@ -390,6 +497,14 @@ def _outside_clearance_cases():
     )
 
 
+def _public_screening(screening: dict | None) -> dict | None:
+    """Old rows still hold an org-wide `relationship` dossier (counts, total value) that every
+    viewer would receive; it is never sent. The per-viewer read is GET .../counterparty."""
+    if not isinstance(screening, dict):
+        return screening
+    return {k: v for k, v in screening.items() if k != "relationship"}
+
+
 def _accessible(user: User):
     """Staff (intake:read) see the whole org queue; everyone else only their own."""
     from app.core.rbac import has_permission
@@ -491,6 +606,19 @@ class _PreparedAttachment:
     extraction_quality: float | None
 
 
+def _ocr_text(filename: str, mime_type: str, content: bytes) -> str:
+    import asyncio
+
+    from app.integrations.dependencies import get_reducto_client
+
+    try:
+        return asyncio.run(get_reducto_client().extract_text(
+            filename=filename, mime_type=mime_type, content=content)).text or ""
+    except Exception:
+        logger.warning("OCR of attachment %s failed", filename, exc_info=True)
+        return ""
+
+
 def _validate_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
     """Everything that can refuse one attachment, without reading its text.
 
@@ -516,7 +644,7 @@ def _validate_attachment(filename: str, mime_type: str, content: bytes) -> _Prep
 
 def _extract_attachment(att: _PreparedAttachment, content: bytes) -> _PreparedAttachment:
     """Read the text of an attachment that has passed _validate_attachment."""
-    from app.contract_files.text_extraction import extract_text
+    from app.contract_files.text_extraction import extract_text, score_extraction_quality
 
     name, mime_type = att.filename, att.mime_type
     extracted, quality = "", None
@@ -525,8 +653,15 @@ def _extract_attachment(att: _PreparedAttachment, content: bytes) -> _PreparedAt
         # Postgres TEXT/VARCHAR columns can never store a NUL byte — some PDF
         # extractors emit them for certain font encodings, which would
         # otherwise fail this insert.
-        extracted = (result.text or "").replace("\x00", "")[:20000]
-        quality = result.quality_score
+        text, quality = result.text or "", result.quality_score
+        if result.needs_ocr:
+            # A scan (or a scan with only an e-signature stamp as text) reads as stamps, and the contract
+            # made from this attachment is built from this text, so OCR it here like the main upload does.
+            # A failed OCR keeps the native text rather than refusing the filing.
+            ocr_text = _ocr_text(name, mime_type, content)
+            if ocr_text:
+                text, quality = ocr_text, score_extraction_quality(ocr_text)
+        extracted = text.replace("\x00", "")[:20000]
     except Exception:
         extracted = ""
     return _PreparedAttachment(name, mime_type, att.size_bytes, extracted or None, quality)
@@ -584,15 +719,73 @@ class IntakeService:
                           .order_by(WorkflowRun.created_at.desc())).first()
 
     def _contract_title(self, contract_id: str | None) -> str | None:
-        db = self.db
-        if not contract_id:
-            return None
         from app.contracts.models import Contract
-        c = db.get(Contract, contract_id)
+        c = self.db.get(Contract, contract_id) if contract_id else None
         return c.title if c else None
 
-    def serialize_request(self, r: IntakeRequest) -> dict:
+    def _visible_contracts(self, viewer: User, contract_ids: set[str]) -> dict[str, str]:
+        """{contract id: title} for the contracts this viewer may open, in ONE query for the
+        owner / creator / admin / granted ones (the contract list's own filter); none at all
+        without ``contract:read`` (as the counterparty read does). The rest get the contract
+        page's other two doors, silently (no access.denied row): not sealed off by a wall or
+        clearance, and a pending approver or a workflow-step assignee of it. A contract missing
+        from the result reads as absent.
+        ponytail: one or two small queries per contract that is not owner/admin/granted (normally
+        zero to a few); batch the approver / assignee lookup if a queue shows many of them."""
+        from app.contracts.access import (
+            ContractAccessService,
+            accessible_contract_filter,
+            is_sealed_off,
+        )
+        from app.contracts.models import Contract
+        from app.core.rbac import has_permission
+
+        if not contract_ids or not has_permission(viewer.permission_values, "contract:read"):
+            return {}
+        rows = self.db.execute(select(Contract.id, Contract.title).where(
+            Contract.id.in_(contract_ids), Contract.deleted_at.is_(None),
+            accessible_contract_filter(viewer))).all()
+        out = {cid: title for cid, title in rows}
+        rest = contract_ids - out.keys()
+        if rest:
+            access = ContractAccessService(self.db)
+            for c in self.db.scalars(select(Contract).where(
+                    Contract.id.in_(rest), Contract.deleted_at.is_(None),
+                    Contract.org_id == viewer.org_id)):
+                # deny-overrides first: a walled / under-cleared approver still sees nothing
+                if is_sealed_off(self.db, user=viewer, contract=c):
+                    continue
+                if (access._is_pending_approver(contract=c, user=viewer)
+                        or access._is_workflow_assignee(contract=c, user=viewer)):
+                    out[c.id] = c.title
+        return out
+
+    def contract_hidden_from(self, viewer: User, r: IntakeRequest) -> bool:
+        """True when the request has a contract this viewer may not open."""
+        return bool(r.contract_id) and r.contract_id not in self._visible_contracts(
+            viewer, {r.contract_id})
+
+    def serialize_requests(self, rows: list[IntakeRequest], viewer: User) -> list[dict]:
+        """List form of serialize_request: one visibility query for the whole page."""
+        visible = self._visible_contracts(viewer, {r.contract_id for r in rows if r.contract_id})
+        return [self.serialize_request(r, viewer, visible=visible) for r in rows]
+
+    def serialize_request(self, r: IntakeRequest, viewer: User | None = None, *,
+                          visible: dict[str, str] | None = None) -> dict:
+        """``viewer`` (else the user ``get_request`` loaded the row for) decides whether the
+        contract id/title show: a contract the viewer may not open reads as no contract at all.
+        Only gmail_sync's system re-serialize and the module-level wrapper have no viewer and
+        keep showing the contract; neither returns it to a user."""
         from app.intake.screening import gather_parties
+
+        viewer = viewer or getattr(r, "_viewer", None)
+        if viewer is None:
+            contract_id, contract_title = r.contract_id, self._contract_title(r.contract_id)
+        else:
+            if visible is None:
+                visible = self._visible_contracts(viewer, {r.contract_id} if r.contract_id else set())
+            contract_id = r.contract_id if r.contract_id in visible else None
+            contract_title = visible.get(contract_id) if contract_id else None
         return {
             "id": r.id,
             "ref": r.ref,
@@ -621,14 +814,14 @@ class IntakeService:
             "triaged_by_user_id": r.triaged_by_user_id,
             "triage_action": r.triage_action,
             "ai_triage": r.ai_triage,
-            "screening": r.screening,
+            "screening": _public_screening(r.screening),
             # The EFFECTIVE parties (structured list, else the legacy
             # field_values.counterparty), the same set the relationship note uses.
             "parties": gather_parties(r),
             "handoff_holder": r.handoff_holder,
             "handoff_user_id": r.handoff_user_id,
-            "contract_id": r.contract_id,
-            "contract_title": self._contract_title(r.contract_id),
+            "contract_id": contract_id,
+            "contract_title": contract_title,
             "workflow": _workflow(r, self._latest_run(r)),
             "created_at": _iso(r.created_at),
             "filed_by_agent": r.filed_via_api_key_id is not None,
@@ -733,7 +926,7 @@ class IntakeService:
         self._compute_intake_analysis(r)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _pick_owner_team_candidates(self, *, org_id: str, category: str | None,
                                     department: str | None) -> list:
@@ -934,7 +1127,7 @@ class IntakeService:
             duplicate = self._recent_duplicate_request(actor=actor, payload=payload,
                                                   field_values=field_values)
             if duplicate is not None:
-                return self.serialize_request(duplicate) | {"idempotent_repeat": False}
+                return self.serialize_request(duplicate, actor) | {"idempotent_repeat": False}
         now = utcnow()
         r = IntakeRequest(
             org_id=org_id, ref=self._next_ref(), source=source,
@@ -990,10 +1183,23 @@ class IntakeService:
         # returned above, so none of them pays for OCR.
         for att, (_, content) in zip(attachments, raw, strict=True):
             self._attach(actor=actor, r=r, att=_extract_attachment(att, content), auth=auth)
+        from app.intake.request_summary import record_summary
+
+        record_summary(db, actor, r, getattr(payload, "summary", None), field_values, request_id)
+        form = (field_values or {}).get("request_form")
+        if form == "sow":
+            # What the requester filed for the SOW, exactly as stored (FR-38): the rows, and the pricing,
+            # window and money they were checked against.
+            facts = {k: field_values.get(k) for k in ("deliverable_rows", "pricing", "services_start",
+                                                      "services_end", "value", "currency")}
+        else:
+            # What the requester filed for the draft, exactly as stored: every answer a template field is
+            # built from (a form without any adds nothing).
+            facts = {f.key: field_values[f.key] for f in form_fields(form) if f.fills and f.key in field_values}
         agent_filed = filed_via_api_key_id is not None
         write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
                         org_id=org_id, actor_user_id=actor_id, request_id=request_id,
-                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority},
+                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority, **facts},
                         metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id,
                                   "source": source, "idempotency_key": idem_key,
                                   "attachment_count": len(attachments),
@@ -1030,13 +1236,13 @@ class IntakeService:
                 # The request is saved; the reclaim sweep re-dispatches the queued job.
                 logger.warning("could not dispatch intake triage for request %s", r.id, exc_info=True)
             self.dispatch_screening(screening_job)
-            return self.serialize_request(r) | {"idempotent_repeat": False}
+            return self.serialize_request(r, actor) | {"idempotent_repeat": False}
         self._assign_and_notify(r, actor)
         db.commit()
         db.refresh(r)
         self.dispatch_screening(screening_job)
         self._enrich_after_commit(r, actor)
-        return self.serialize_request(r) | {"idempotent_repeat": False}
+        return self.serialize_request(r, actor) | {"idempotent_repeat": False}
 
     def _find_by_idempotency_key(self, *, org_id: str, key: str) -> IntakeRequest | None:
         """The request this API key already filed. Its own method so a test can inject a race."""
@@ -1210,7 +1416,7 @@ class IntakeService:
         db.refresh(r)
         self.dispatch_screening(rescreen_job)
         self._attach_flow_suggestion(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def queue_screening(self, r: IntakeRequest, actor_id: str | None,
                         *, idempotent: bool = True):
@@ -1300,7 +1506,7 @@ class IntakeService:
             q = q.where(IntakeRequest.status == status_filter)
         rows = db.scalars(q.order_by(IntakeRequest.submitted_at.desc())).all()
         self._prefetch_serialize_dependencies(rows)
-        return [self.serialize_request(r) for r in rows]
+        return self.serialize_requests(rows, user)
 
     def _prefetch_serialize_dependencies(self, rows: list[IntakeRequest]) -> None:
         """Warm the session identity map so serialize_request's per-row db.get()
@@ -1340,6 +1546,7 @@ class IntakeService:
         can_read = is_org_admin(user) or has_permission(user.permission_values, "intake:read")
         if not can_read and r.requester_user_id != user.id:
             raise HTTPException(404, "Request not found")
+        r._viewer = user  # serialize_request's default viewer, so route code can't forget it
         return r
 
     def record_handoff(self, *, actor: User | None, request: IntakeRequest, to_holder: str,
@@ -1392,7 +1599,7 @@ class IntakeService:
                        sync_assignee=payload.sync_assignee)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
 
     def record_triage_action(self, *, actor: User, request_id: str, payload,
@@ -1450,7 +1657,7 @@ class IntakeService:
 
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _rung_label(self, *, user_id: str | None, team_id: str | None, role: str | None) -> str:
         db = self.db
@@ -1504,11 +1711,31 @@ class IntakeService:
             "counterparty_contact": party.contact_email if theirs_ok else None,
         }
 
-    def _serialize_chain(self, rows: list) -> list[dict]:
-        """One rung per ApprovalRequest, in order — the intake ladder strip."""
+    def _serialize_chain(self, rows: list, *, actor: User) -> list[dict]:
+        """One rung per ApprovalRequest, in order — the intake ladder strip. `can_decide` is
+        assigned-only (no admin shortcut) and false once the actor has decided the rung;
+        `decisions` are batch-loaded, oldest first."""
+        from app.approvals.models import ApprovalDecision
+        from app.approvals.routes import _can_decide_approval
         from app.approvals.service import _quorum_needed
+        from app.core.enums import ApprovalStatus
 
         db = self.db
+        by_rung: dict[str, list] = {}
+        names: dict[str, str | None] = {}
+        if rows:
+            decided = db.scalars(
+                select(ApprovalDecision)
+                .where(ApprovalDecision.org_id == actor.org_id,
+                       ApprovalDecision.approval_request_id.in_([a.id for a in rows]))
+                .order_by(ApprovalDecision.decided_at, ApprovalDecision.created_at)
+            ).all()
+            for d in decided:
+                by_rung.setdefault(d.approval_request_id, []).append(d)
+            uids = {d.approver_user_id for d in decided if d.approver_user_id}
+            if uids:
+                names = {u.id: (u.full_name or u.email or None) for u in db.scalars(
+                    select(User).where(User.org_id == actor.org_id, User.id.in_(uids)))}
         return [{
             "approval_request_id": a.id,
             "step_order": a.step_order,
@@ -1519,6 +1746,18 @@ class IntakeService:
             "approver_label": self._rung_label(user_id=a.approver_user_id,
                                           team_id=a.approver_team_id, role=a.approver_role),
             "due_at": a.due_at.isoformat() if a.due_at else None,
+            "can_decide": (
+                a.status == ApprovalStatus.PENDING  # a waiting/decided/cancelled rung is not open
+                and not any(d.approver_user_id == actor.id for d in by_rung.get(a.id, []))
+                and _can_decide_approval(db, approval=a, user=actor, assigned_only=True)
+            ),
+            "decisions": [{
+                "approver_user_id": d.approver_user_id,
+                "approver_name": names.get(d.approver_user_id),
+                "decision": d.decision,
+                "comment": d.comment,
+                "decided_at": d.decided_at.isoformat(),
+            } for d in by_rung.get(a.id, [])],
         } for a in rows]
 
     def get_approval_chain(self, *, actor: User, request_id: str) -> list[dict]:
@@ -1554,7 +1793,7 @@ class IntakeService:
                 .order_by(ApprovalRequest.created_at, ApprovalRequest.step_order)
             ).all()
         if rows:
-            return self._serialize_chain(rows)
+            return self._serialize_chain(rows, actor=actor)
         if r.status in ("closed", "approved"):
             return []
         flow = None if run else select_flow(db, request=r)
@@ -1568,6 +1807,8 @@ class IntakeService:
             "approver_label": self._rung_label(user_id=t.get("approver_user_id"),
                                           team_id=t.get("approver_team_id"), role=t.get("approver_role")),
             "due_at": None,
+            "can_decide": False,
+            "decisions": [],
         } for t in targets]
         for i, rung in enumerate(rungs):
             rung["step_order"] = i + 1
@@ -1702,7 +1943,7 @@ class IntakeService:
         scope = self._pool_scope_for_user(user)
         rows = [r for r in rows if _in_pool_scope(r, scope)]
         self._prefetch_serialize_dependencies(rows)
-        return [self.serialize_request(r) for r in rows]
+        return self.serialize_requests(rows, user)
 
     def claim_request(self, *, actor: User, request_id: str,
                       http_request_id: str | None = None) -> dict:
@@ -1731,7 +1972,7 @@ class IntakeService:
                         request_id=http_request_id, after={"assignee": actor.id})
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def my_work(self, *, user: User) -> dict:
         db = self.db
@@ -1755,7 +1996,7 @@ class IntakeService:
         ).all()
         return {
             "awaiting_review": [],  # triage removed — no AI recommendations to review
-            "my_tickets": [self.serialize_request(r) for r in tickets],
+            "my_tickets": self.serialize_requests(tickets, user),
             "my_tasks": [self.serialize_task(t) for t in tasks],
         }
 
@@ -1778,7 +2019,7 @@ class IntakeService:
                              actor_user_id=actor.id)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def build_sla_legs(self, *, request: IntakeRequest, now=None) -> dict:
         db = self.db
@@ -1865,7 +2106,7 @@ class IntakeService:
         r.updated_by_user_id = actor.id
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def sla_ops_summary(self, *, org_id: str) -> dict:
         db = self.db
@@ -1983,6 +2224,7 @@ class IntakeService:
         if r.status == "closed":
             raise HTTPException(409, "Request is closed — file a follow-up")
         before = {"stage": r.stage, "priority": r.priority, "work_status": r.work_status}
+        stored = dict(r.field_values or {})
         for attr in ("priority", "department", "description", "work_status"):
             val = getattr(payload, attr, None)
             if val is not None:
@@ -1994,7 +2236,7 @@ class IntakeService:
             from app.intake.agreement_forms import form_fields
 
             form = (r.field_values or {}).get("request_form") or (payload.field_values or {}).get("request_form")
-            r.field_values = _validate_field_values(form_fields(form), payload.field_values)
+            r.field_values = _validate_field_values(form_fields(form), payload.field_values, stored=stored)
         if payload.stage is not None and payload.stage != r.stage:
             valid = stages_for()
             if payload.stage not in valid:
@@ -2015,9 +2257,53 @@ class IntakeService:
             write_audit_log(db, action="intake.updated", resource_type="intake_request",
                             resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                             before=before, after={"priority": r.priority, "work_status": r.work_status})
+        self._record_deliverables_change(actor=actor, r=r, stored=stored, request_id=http_request_id)
+        self._record_answer_changes(actor=actor, r=r, stored=stored, request_id=http_request_id)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
+
+    def _record_deliverables_change(self, *, actor: User, r: IntakeRequest, stored: dict,
+                                    request_id: str | None) -> None:
+        """Who changed a SOW's deliverable rows and what they were before and after (FR-38), in the
+        request's own transaction. Pricing rides along: it is why a share column appears or goes."""
+        now = r.field_values or {}
+        if stored.get("deliverable_rows") == now.get("deliverable_rows"):
+            return
+        before = {"deliverable_rows": stored.get("deliverable_rows"), "pricing": stored.get("pricing")}
+        after = {"deliverable_rows": now.get("deliverable_rows"), "pricing": now.get("pricing")}
+        write_audit_log(self.db, action="intake.deliverables_changed", resource_type="intake_request",
+                        resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                        request_id=request_id, before=before, after=after)
+        write_timeline_event(
+            self.db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
+            event_type="intake.deliverables_changed", actor_user_id=actor.id, request_id=request_id,
+            title="Deliverables changed" if stored.get("deliverable_rows") else "Deliverables entered as rows",
+            details={"before": before, "after": after})
+
+    def _record_answer_changes(self, *, actor: User, r: IntakeRequest, stored: dict,
+                               request_id: str | None) -> None:
+        """Who changed the answers a draft is made from, and what they were before and after, in the
+        request's own transaction. Covers an answer dropped or newly required because another answer
+        changed (a rate when the basis goes to Fixed fee; the countries when "leave India" goes to No), and
+        an older request's first entry. Nothing is written when none of them changed."""
+        from app.intake.agreement_forms import form_fields
+
+        now = r.field_values or {}
+        keys = [f.key for f in form_fields(now.get("request_form") or stored.get("request_form")) if f.fills]
+        changed = [k for k in keys if stored.get(k) != now.get(k)]
+        if not changed:
+            return
+        before, after = ({k: answers.get(k) for k in keys} for answers in (stored, now))
+        write_audit_log(self.db, action="intake.answers_changed", resource_type="intake_request",
+                        resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                        request_id=request_id, before=before, after=after)
+        write_timeline_event(
+            self.db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
+            event_type="intake.answers_changed", actor_user_id=actor.id, request_id=request_id,
+            title="Answers for the draft entered" if all(stored.get(k) is None for k in changed)
+            else "Answers for the draft changed",
+            details={"before": before, "after": after, "changed": changed})
 
     def _attach(self, *, actor: User, r: IntakeRequest, att: _PreparedAttachment,
                 auth: AuthContext = INTERNAL):

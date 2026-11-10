@@ -6,9 +6,9 @@ Owner agents: backend-dev, db-engineer
 
 ## Models
 
-- `DocumentExtract` (table `document_extract`, org_scoped=True, soft_delete=False) -- FKs: ingested_trademark_id->trademark.id
+- `DocumentExtract` (table `document_extract`, org_scoped=True, soft_delete=False) -- FKs: (none)
 - `PortfolioDigest` (table `portfolio_digest`, org_scoped=True, soft_delete=False) -- FKs: (none)
-- `Trademark` (table `trademark`, org_scoped=True, soft_delete=True) -- FKs: source_document_extract_id->document_extract.id, source_intake_request_id->intake_request.id
+- `Trademark` (table `trademark`, org_scoped=True, soft_delete=True) -- FKs: source_intake_request_id->intake_request.id
 
 ## Endpoints
 
@@ -35,7 +35,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-ClassSuggestionRequest, ClassSuggestionResponse, DashboardMetrics, ExplainConflictRequest, ExplainConflictResponse, ExtractRequest, ExtractResponse, ExtractedRecord, FieldDefinition, IngestRequest, IngestResponse, IntakeSubmitRequest, IntegrationStatusEntry, IntegrationStatusResponse, IntegrationTestResponse, InternalPortfolioResult, PortfolioDigestResponse, PortfolioRenewalsResponse, PortfolioStatsResponse, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, SearchSummary, SignaResult, SourceResult, TmSearchResult, TrademarkCreate, TrademarkFromIntakeRequest, TrademarkResponse, TrademarkSummary, TrademarkUpdate, UploadDocumentResponse, WebSearchResult
+ActivityEntry, AwaitingAction, ClassSuggestionRequest, ClassSuggestionResponse, DashboardMetrics, DecisionRequest, DocumentExtractResult, ExplainConflictRequest, ExplainConflictResponse, ExtractRequest, ExtractResponse, ExtractedRecord, FieldDefinition, FilingRequest, IngestRequest, IngestResponse, IntakeSubmitRequest, IntegrationStatusEntry, IntegrationStatusResponse, IntegrationTestResponse, InternalPortfolioResult, PortfolioDigestResponse, PortfolioRenewalsResponse, PortfolioStatsResponse, PostFilingUpdateRequest, RenewalCalendarEntry, ResponseRequest, SearchRunUpdate, SearchSimilarRequest, SearchSimilarResponse, SearchSummary, SignaResult, SourceResult, TmSearchResult, TrademarkByRequest, TrademarkCase, TrademarkCreate, TrademarkFromIntakeRequest, TrademarkResponse, TrademarkSearchRunDetail, TrademarkSearchRunSummary, TrademarkSummary, TrademarkUpdate, UploadDocumentResponse, WebSearchResult
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -44,6 +44,7 @@ ClassSuggestionRequest, ClassSuggestionResponse, DashboardMetrics, ExplainConfli
 - `0043_trademark_comments` (backend/alembic/versions/0043_trademark_comments.py)
 - `0048_trademark_suite_menu` (backend/alembic/versions/0048_trademark_suite_menu.py)
 - `0049_trademark_menu_labels` (backend/alembic/versions/0049_trademark_menu_labels.py)
+- `0051_trademark_clearance` (backend/alembic/versions/0051_trademark_clearance.py)
 - `0066_trademarks_menu_item` (backend/alembic/versions/0066_trademarks_menu_item.py)
 - `0067_remove_trademarks_menu_item` (backend/alembic/versions/0067_remove_trademarks_menu_item.py)
 - `0073_merge_trademark_suite` (backend/alembic/versions/0073_merge_trademark_suite.py)
@@ -51,7 +52,9 @@ ClassSuggestionRequest, ClassSuggestionResponse, DashboardMetrics, ExplainConfli
 ## Frontend counterpart
 
 Api group: `trademarksApi` (confidence: exact)
+- `trademarksApi.activity()` -> `GET /trademarks/${id}/activity`
 - `trademarksApi.atRisk()` -> `GET /trademarks/reports/at-risk`
+- `trademarksApi.byRequest()` -> `GET /trademarks/by-request/${requestId}`
 - `trademarksApi.calendar()` -> `GET /trademarks/calendar`
 - `trademarksApi.classifyGoods()` -> `POST /trademarks/classify-goods`
 - `trademarksApi.commentCounts()` -> `GET /trademarks/comments/counts`
@@ -61,16 +64,24 @@ Api group: `trademarksApi` (confidence: exact)
 - `trademarksApi.dashboard()` -> `GET /trademarks/dashboard`
 - `trademarksApi.digest()` -> `GET /trademarks/reports/digest`
 - `trademarksApi.explainConflict()` -> `POST /trademarks/explain-conflict`
+- `trademarksApi.exportSearchRun()` -> `GET /trademarks/search-runs/${runId}/export`
 - `trademarksApi.extractFields()` -> `POST /trademarks/documents/extract`
 - `trademarksApi.get()` -> `GET /trademarks/${id}`
 - `trademarksApi.ingest()` -> `POST /trademarks/documents/ingest`
 - `trademarksApi.intake()` -> `POST /trademarks/intake`
 - `trademarksApi.integrationsStatus()` -> `GET /trademarks/integrations/status`
 - `trademarksApi.list()` -> `GET /trademarks`
+- `trademarksApi.openResponse()` -> `POST /trademarks/${id}/responses`
 - `trademarksApi.portfolioStats()` -> `GET /trademarks/reports/stats`
 - `trademarksApi.postComment()` -> `POST /trademarks/${trademarkId}/comments`
+- `trademarksApi.postFilingUpdate()` -> `POST /trademarks/${id}/post-filing-update`
+- `trademarksApi.recordDecision()` -> `POST /trademarks/${id}/decision`
+- `trademarksApi.recordFiling()` -> `POST /trademarks/${id}/filing`
 - `trademarksApi.regenerateDigest()` -> `POST /trademarks/reports/digest/regenerate`
+- `trademarksApi.searchRun()` -> `GET /trademarks/search-runs/${runId}`
+- `trademarksApi.searchRuns()` -> `GET /trademarks/${id}/search-runs`
 - `trademarksApi.searchSimilar()` -> `POST /trademarks/search-similar`
 - `trademarksApi.testIntegration()` -> `POST /trademarks/integrations/test/${service}`
 - `trademarksApi.update()` -> `PATCH /trademarks/${id}`
+- `trademarksApi.updateSearchRun()` -> `PATCH /trademarks/search-runs/${runId}`
 - `trademarksApi.uploadDocument()` -> `GET /trademarks/documents/upload`

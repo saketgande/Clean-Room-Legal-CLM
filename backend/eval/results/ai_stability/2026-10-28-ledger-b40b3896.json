@@ -1,0 +1,3141 @@
+{
+  "date": "2026-10-28",
+  "batch": "b40b3896-9164-4533-b4be-5f1338ebb8ca,6344cfab-8cd4-4b82-9671-15954d443cd8",
+  "source": "ledger",
+  "tasks": {
+    "playbook_review": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "aae0eca0-18f7-402e-b879-d2fbc48dc8a5",
+          "stored_prompt_version": "1.0.6",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.4666666666666666,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.3333333333333333,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 3]",
+            "[\"dev\", 1, \"fallback\"]",
+            "[\"dev\", 7, \"fallback\"]",
+            "[\"dev\", 8, \"fallback\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 8, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 3]",
+              "[\"dev\", 1, \"fallback\"]",
+              "[\"dev\", 8, \"fallback\"]",
+              "[\"dev\", 9, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 8, \"fallback\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"count\", 1]",
+            "[\"count\", 3]",
+            "[\"dev\", 1, \"fallback\"]",
+            "[\"dev\", 9, \"fallback\"]"
+          ]
+        },
+        {
+          "source_call_id": "71d3e84d-91fd-4893-ab2c-0f272ed63725",
+          "stored_prompt_version": "1.0.6",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.3333333333333333,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.16666666666666666,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 2]",
+            "[\"dev\", 1, \"fallback\"]",
+            "[\"dev\", 8, \"fallback\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 8, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 8, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 0]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"count\", 0]",
+            "[\"count\", 1]",
+            "[\"dev\", 8, \"fallback\"]"
+          ]
+        },
+        {
+          "source_call_id": "070711a0-ddf4-4aef-90f2-f5516ecb0aa3",
+          "stored_prompt_version": "1.0.6",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.5,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.16666666666666666,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 1]",
+            "[\"dev\", 4, \"outside\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 2]",
+              "[\"dev\", 1, \"fallback\"]",
+              "[\"dev\", 8, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 2]",
+              "[\"dev\", 4, \"outside\"]",
+              "[\"dev\", 8, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 2]",
+              "[\"dev\", 1, \"fallback\"]",
+              "[\"dev\", 4, \"outside\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"dev\", 1, \"fallback\"]",
+            "[\"dev\", 4, \"outside\"]",
+            "[\"dev\", 8, \"fallback\"]"
+          ]
+        },
+        {
+          "source_call_id": "ba346770-b88d-48fc-94ee-63d6eca02c23",
+          "stored_prompt_version": "1.0.6",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 1]",
+            "[\"dev\", 3, \"fallback\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 3, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 3, \"fallback\"]"
+            ],
+            [
+              "[\"count\", 1]",
+              "[\"dev\", 3, \"fallback\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 25.0,
+        "mean_jaccard": 0.575,
+        "pct_replays_match_original": 25.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "intake_triage": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "e0721508-7362-4b16-8236-c1af8fc2bb6b",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", \"nda\"]",
+            "[\"complexity\", \"standard\"]",
+            "[\"needs_human\", true]",
+            "[\"needs_info\", true]",
+            "[\"risk\", \"medium\"]",
+            "[\"urgency\", \"medium\"]",
+            "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"standard\"]",
+              "[\"needs_human\", true]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"medium\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"standard\"]",
+              "[\"needs_human\", true]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"medium\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"standard\"]",
+              "[\"needs_human\", true]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"medium\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "5fe7a623-57c9-42f9-b662-9a7d3bf5a315",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", \"nda\"]",
+            "[\"complexity\", \"simple\"]",
+            "[\"needs_human\", false]",
+            "[\"needs_info\", true]",
+            "[\"risk\", \"low\"]",
+            "[\"urgency\", \"medium\"]",
+            "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", true]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "45213506-aa64-48c0-890b-afe7677c7b1a",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.75,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", \"nda\"]",
+            "[\"complexity\", \"simple\"]",
+            "[\"needs_human\", false]",
+            "[\"needs_info\", true]",
+            "[\"risk\", \"low\"]",
+            "[\"urgency\", \"medium\"]",
+            "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "7c74a4bf-e192-441e-9e49-077a8b66d912",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", \"nda\"]",
+            "[\"complexity\", \"simple\"]",
+            "[\"needs_human\", false]",
+            "[\"needs_info\", false]",
+            "[\"risk\", \"low\"]",
+            "[\"urgency\", \"medium\"]",
+            "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ],
+            [
+              "[\"category\", \"nda\"]",
+              "[\"complexity\", \"simple\"]",
+              "[\"needs_human\", false]",
+              "[\"needs_info\", false]",
+              "[\"risk\", \"low\"]",
+              "[\"urgency\", \"medium\"]",
+              "[\"workflow\", \"9e402f93-5cde-4bd6-bd1d-84ace3e07fad\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 100.0,
+        "mean_jaccard": 1.0,
+        "pct_replays_match_original": 75.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "intake_form_read": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "b063a389-dc40-4655-a35a-45064eb9ac41",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.5,
+            "runs": 3,
+            "matches_original": 1,
+            "original_jaccard": 0.5,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"field\", \"agreement type\"]",
+            "[\"n_mismatches\", 1]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"field\", \"agreement type\"]",
+              "[\"field\", \"currency\"]",
+              "[\"n_mismatches\", 2]"
+            ],
+            [
+              "[\"field\", \"agreement type\"]",
+              "[\"n_mismatches\", 1]"
+            ],
+            [
+              "[\"field\", \"agreement type\"]",
+              "[\"field\", \"currency\"]",
+              "[\"n_mismatches\", 2]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"field\", \"currency\"]",
+            "[\"n_mismatches\", 1]",
+            "[\"n_mismatches\", 2]"
+          ]
+        },
+        {
+          "source_call_id": "fc8dcf33-6a42-46ae-9f71-ac5a57b2f89c",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.5555555555555555,
+            "runs": 3,
+            "matches_original": 1,
+            "original_jaccard": 0.5555555555555555,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"field\", \"agreement type description purpose\"]",
+            "[\"n_mismatches\", 1]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"field\", \"agreement type\"]",
+              "[\"n_mismatches\", 1]"
+            ],
+            [
+              "[\"field\", \"agreement type\"]",
+              "[\"n_mismatches\", 1]"
+            ],
+            [
+              "[\"field\", \"agreement type description purpose\"]",
+              "[\"n_mismatches\", 1]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"field\", \"agreement type description purpose\"]",
+            "[\"field\", \"agreement type\"]"
+          ]
+        },
+        {
+          "source_call_id": "101ad5db-8eb9-474b-9816-a37368232fe1",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"n_mismatches\", 0]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"n_mismatches\", 0]"
+            ],
+            [
+              "[\"n_mismatches\", 0]"
+            ],
+            [
+              "[\"n_mismatches\", 0]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "cd74bae9-b78d-4be4-b068-32d7c7311c20",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"n_mismatches\", 0]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"n_mismatches\", 0]"
+            ],
+            [
+              "[\"n_mismatches\", 0]"
+            ],
+            [
+              "[\"n_mismatches\", 0]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 50.0,
+        "mean_jaccard": 0.7638888888888888,
+        "pct_replays_match_original": 66.66666666666667,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "email_triage_agent": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "a4377cee-2bc4-4377-a164-17d30dda6fe0",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", null]",
+            "[\"is_clm_related\", false]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "468cec1f-0a25-4a30-8102-0518c1687429",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", null]",
+            "[\"is_clm_related\", false]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "e8f2e7fb-8833-48e6-961d-a3faf9b07f86",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", null]",
+            "[\"is_clm_related\", false]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "659ef0ac-f03b-4ecd-86e9-20dbb95202ae",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"category\", null]",
+            "[\"is_clm_related\", false]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ],
+            [
+              "[\"category\", null]",
+              "[\"is_clm_related\", false]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 100.0,
+        "mean_jaccard": 1.0,
+        "pct_replays_match_original": 100.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "contract_metadata_extraction": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "3b3e614b-68a8-41d6-9ad8-77dc5046efba",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [
+            "truncated: answer cut off at max_tokens (4096)"
+          ],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 2,
+            "matches_original": 2,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 1,
+            "truncated": 1,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"counterparty\", \"initech software ltd\"]",
+            "[\"currency\", null]",
+            "[\"effective\", \"2026-12-30\"]",
+            "[\"expiry\", \"2028-12-30\"]",
+            "[\"governing_law\", \"india\"]",
+            "[\"value\", null]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"counterparty\", \"initech software ltd\"]",
+              "[\"currency\", null]",
+              "[\"effective\", \"2026-12-30\"]",
+              "[\"expiry\", \"2028-12-30\"]",
+              "[\"governing_law\", \"india\"]",
+              "[\"value\", null]"
+            ],
+            [
+              "[\"counterparty\", \"initech software ltd\"]",
+              "[\"currency\", null]",
+              "[\"effective\", \"2026-12-30\"]",
+              "[\"expiry\", \"2028-12-30\"]",
+              "[\"governing_law\", \"india\"]",
+              "[\"value\", null]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "b97d23e6-d64c-4703-9828-e3c93901170b",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.6666666666666666,
+            "runs": 3,
+            "matches_original": 1,
+            "original_jaccard": 0.6666666666666666,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"counterparty\", \"the counterparty\"]",
+            "[\"currency\", null]",
+            "[\"effective\", \"2026-10-27\"]",
+            "[\"expiry\", \"2029-10-27\"]",
+            "[\"governing_law\", \"delaware united states\"]",
+            "[\"value\", null]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"counterparty\", \"the counterparty\"]",
+              "[\"currency\", null]",
+              "[\"effective\", \"2026-10-27\"]",
+              "[\"expiry\", \"2029-10-27\"]",
+              "[\"governing_law\", \"delaware united states\"]",
+              "[\"value\", null]"
+            ],
+            [
+              "[\"counterparty\", \"the counterparty\"]",
+              "[\"currency\", \"usd\"]",
+              "[\"effective\", \"2026-10-27\"]",
+              "[\"expiry\", \"2029-10-27\"]",
+              "[\"governing_law\", \"delaware united states\"]",
+              "[\"value\", 0.0]"
+            ],
+            [
+              "[\"counterparty\", \"the counterparty\"]",
+              "[\"currency\", \"usd\"]",
+              "[\"effective\", \"2026-10-27\"]",
+              "[\"expiry\", \"2029-10-27\"]",
+              "[\"governing_law\", \"delaware united states\"]",
+              "[\"value\", 0.0]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"currency\", \"usd\"]",
+            "[\"currency\", null]",
+            "[\"value\", 0.0]",
+            "[\"value\", null]"
+          ]
+        },
+        {
+          "source_call_id": "20083cb7-ded5-4731-875b-779c391280b3",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [
+            "truncated: answer cut off at max_tokens (4096)",
+            "truncated: answer cut off at max_tokens (4096)"
+          ],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": false,
+            "stable": null,
+            "jaccard": null,
+            "runs": 1,
+            "matches_original": null,
+            "original_jaccard": null,
+            "planned": 3,
+            "failed": 2,
+            "truncated": 2,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"counterparty\", \"initech software ltd\"]",
+            "[\"currency\", \"inr\"]",
+            "[\"effective\", \"2026-12-24\"]",
+            "[\"expiry\", \"2027-06-26\"]",
+            "[\"governing_law\", \"india\"]",
+            "[\"value\", 1000000.0]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"counterparty\", \"initech software ltd\"]",
+              "[\"currency\", \"inr\"]",
+              "[\"effective\", \"2026-12-24\"]",
+              "[\"expiry\", \"2027-06-26\"]",
+              "[\"governing_law\", \"india\"]",
+              "[\"value\", 1000000.0]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "6d6a8a9a-3133-4125-8c9d-267c6806804c",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [
+            "truncated: answer cut off at max_tokens (4096)",
+            "truncated: answer cut off at max_tokens (4096)"
+          ],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": false,
+            "stable": null,
+            "jaccard": null,
+            "runs": 1,
+            "matches_original": null,
+            "original_jaccard": null,
+            "planned": 3,
+            "failed": 2,
+            "truncated": 2,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"counterparty\", \"hooli cloud services inc\"]",
+            "[\"currency\", \"inr\"]",
+            "[\"effective\", \"2026-11-07\"]",
+            "[\"expiry\", \"2027-11-07\"]",
+            "[\"governing_law\", \"india\"]",
+            "[\"value\", 100000.0]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"counterparty\", \"hooli cloud services inc\"]",
+              "[\"currency\", \"inr\"]",
+              "[\"effective\", \"2026-11-07\"]",
+              "[\"expiry\", \"2027-11-07\"]",
+              "[\"governing_law\", \"india\"]",
+              "[\"value\", 100000.0]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 2,
+        "pct_stable": 50.0,
+        "mean_jaccard": 0.8333333333333333,
+        "pct_replays_match_original": 60.0,
+        "replays_planned": 12,
+        "replays_failed": 5,
+        "replays_truncated": 5,
+        "replays_uncomparable": 0
+      }
+    },
+    "clause_labeling": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "3d59b5a9-8e34-4430-a92c-0666db907a5b",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.8558558558558559,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.9014336917562723,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0,
+            "segment_agreement": 0.7837837837837838
+          },
+          "stored_decision": [
+            "[\"S10\", \"representations and warranties\"]",
+            "[\"S14\", \"acceptance\"]",
+            "[\"S16\", \"service levels\"]",
+            "[\"S19\", \"service levels\"]",
+            "[\"S20\", \"service levels\"]",
+            "[\"S21\", \"payment terms\"]",
+            "[\"S29\", \"term and termination\"]",
+            "[\"S32\", \"term and termination\"]",
+            "[\"S38\", \"confidentiality\"]",
+            "[\"S4\", \"services and sow\"]",
+            "[\"S46\", \"data protection\"]",
+            "[\"S54\", \"ip ownership\"]",
+            "[\"S56\", \"license grant\"]",
+            "[\"S59\", \"indemnification\"]",
+            "[\"S63\", \"limitation of liability\"]",
+            "[\"S69\", \"insurance\"]",
+            "[\"S74\", \"non solicitation\"]",
+            "[\"S75\", \"compliance\"]",
+            "[\"S77\", \"audit rights\"]",
+            "[\"S78\", \"force majeure\"]",
+            "[\"S80\", \"notices\"]",
+            "[\"S83\", \"governing law\"]",
+            "[\"S84\", \"dispute resolution\"]",
+            "[\"S85\", \"dispute resolution\"]",
+            "[\"S87\", \"independent contractor\"]",
+            "[\"S88\", \"assignment\"]",
+            "[\"S89\", \"entire agreement\"]",
+            "[\"S90\", \"amendment\"]",
+            "[\"S91\", \"severability\"]",
+            "[\"S93\", \"counterparts\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S73\", \"independent contractor\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ],
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S73\", \"independent contractor\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ],
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S33\", \"term and termination\"]",
+              "[\"S34\", \"term and termination\"]",
+              "[\"S35\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S62\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S72\", \"non solicitation\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S87\", \"independent contractor\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"S33\", \"term and termination\"]",
+            "[\"S34\", \"term and termination\"]",
+            "[\"S35\", \"term and termination\"]",
+            "[\"S36\", \"term and termination\"]",
+            "[\"S62\", \"indemnification\"]",
+            "[\"S72\", \"non solicitation\"]",
+            "[\"S73\", \"independent contractor\"]",
+            "[\"S87\", \"independent contractor\"]"
+          ]
+        },
+        {
+          "source_call_id": "061f4975-e3b1-4391-bdd6-74627be1e4a3",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.9540229885057471,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.8881226053639847,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0,
+            "segment_agreement": 0.9310344827586207
+          },
+          "stored_decision": [
+            "[\"S10\", \"representations and warranties\"]",
+            "[\"S102\", \"non solicitation\"]",
+            "[\"S103\", \"compliance\"]",
+            "[\"S105\", \"audit rights\"]",
+            "[\"S106\", \"force majeure\"]",
+            "[\"S108\", \"notices\"]",
+            "[\"S111\", \"governing law\"]",
+            "[\"S112\", \"dispute resolution\"]",
+            "[\"S113\", \"dispute resolution\"]",
+            "[\"S115\", \"independent contractor\"]",
+            "[\"S116\", \"assignment\"]",
+            "[\"S117\", \"entire agreement\"]",
+            "[\"S118\", \"amendment\"]",
+            "[\"S119\", \"severability\"]",
+            "[\"S121\", \"counterparts\"]",
+            "[\"S19\", \"acceptance\"]",
+            "[\"S21\", \"service levels\"]",
+            "[\"S26\", \"payment terms\"]",
+            "[\"S33\", \"term and termination\"]",
+            "[\"S36\", \"term and termination\"]",
+            "[\"S4\", \"services and sow\"]",
+            "[\"S48\", \"confidentiality\"]",
+            "[\"S63\", \"data protection\"]",
+            "[\"S71\", \"ip ownership\"]",
+            "[\"S73\", \"license grant\"]",
+            "[\"S76\", \"indemnification\"]",
+            "[\"S84\", \"limitation of liability\"]",
+            "[\"S95\", \"insurance\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"S10\", \"warranty\"]",
+              "[\"S102\", \"non solicitation\"]",
+              "[\"S103\", \"compliance\"]",
+              "[\"S105\", \"audit rights\"]",
+              "[\"S106\", \"force majeure\"]",
+              "[\"S108\", \"notices\"]",
+              "[\"S111\", \"governing law\"]",
+              "[\"S112\", \"dispute resolution\"]",
+              "[\"S113\", \"dispute resolution\"]",
+              "[\"S115\", \"independent contractor\"]",
+              "[\"S116\", \"assignment\"]",
+              "[\"S117\", \"entire agreement\"]",
+              "[\"S118\", \"amendment\"]",
+              "[\"S119\", \"severability\"]",
+              "[\"S121\", \"counterparts\"]",
+              "[\"S19\", \"acceptance\"]",
+              "[\"S21\", \"service levels\"]",
+              "[\"S26\", \"payment terms\"]",
+              "[\"S33\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S48\", \"confidentiality\"]",
+              "[\"S63\", \"data protection\"]",
+              "[\"S71\", \"ip ownership\"]",
+              "[\"S73\", \"license grant\"]",
+              "[\"S76\", \"indemnification\"]",
+              "[\"S84\", \"limitation of liability\"]",
+              "[\"S95\", \"insurance\"]"
+            ],
+            [
+              "[\"S10\", \"warranty\"]",
+              "[\"S101\", \"independent contractor\"]",
+              "[\"S102\", \"non solicitation\"]",
+              "[\"S103\", \"compliance\"]",
+              "[\"S105\", \"audit rights\"]",
+              "[\"S106\", \"force majeure\"]",
+              "[\"S108\", \"notices\"]",
+              "[\"S111\", \"governing law\"]",
+              "[\"S112\", \"dispute resolution\"]",
+              "[\"S113\", \"dispute resolution\"]",
+              "[\"S116\", \"assignment\"]",
+              "[\"S117\", \"entire agreement\"]",
+              "[\"S118\", \"amendment\"]",
+              "[\"S119\", \"severability\"]",
+              "[\"S121\", \"counterparts\"]",
+              "[\"S19\", \"acceptance\"]",
+              "[\"S21\", \"service levels\"]",
+              "[\"S26\", \"payment terms\"]",
+              "[\"S33\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S48\", \"confidentiality\"]",
+              "[\"S63\", \"data protection\"]",
+              "[\"S71\", \"ip ownership\"]",
+              "[\"S73\", \"license grant\"]",
+              "[\"S76\", \"indemnification\"]",
+              "[\"S84\", \"limitation of liability\"]",
+              "[\"S95\", \"insurance\"]"
+            ],
+            [
+              "[\"S10\", \"warranty\"]",
+              "[\"S101\", \"independent contractor\"]",
+              "[\"S102\", \"non solicitation\"]",
+              "[\"S103\", \"compliance\"]",
+              "[\"S105\", \"audit rights\"]",
+              "[\"S106\", \"force majeure\"]",
+              "[\"S108\", \"notices\"]",
+              "[\"S111\", \"governing law\"]",
+              "[\"S112\", \"dispute resolution\"]",
+              "[\"S113\", \"dispute resolution\"]",
+              "[\"S116\", \"assignment\"]",
+              "[\"S117\", \"entire agreement\"]",
+              "[\"S118\", \"amendment\"]",
+              "[\"S119\", \"severability\"]",
+              "[\"S121\", \"counterparts\"]",
+              "[\"S19\", \"acceptance\"]",
+              "[\"S21\", \"service levels\"]",
+              "[\"S26\", \"payment terms\"]",
+              "[\"S33\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S48\", \"confidentiality\"]",
+              "[\"S63\", \"data protection\"]",
+              "[\"S71\", \"ip ownership\"]",
+              "[\"S73\", \"license grant\"]",
+              "[\"S76\", \"indemnification\"]",
+              "[\"S84\", \"limitation of liability\"]",
+              "[\"S95\", \"insurance\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"S101\", \"independent contractor\"]",
+            "[\"S115\", \"independent contractor\"]"
+          ]
+        },
+        {
+          "source_call_id": "3c86bbe8-9881-44b2-9c0e-a538ea29c5b3",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.9175932714239167,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.9475806451612904,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0,
+            "segment_agreement": 0.90625
+          },
+          "stored_decision": [
+            "[\"S10\", \"representations and warranties\"]",
+            "[\"S14\", \"acceptance\"]",
+            "[\"S16\", \"service levels\"]",
+            "[\"S19\", \"service levels\"]",
+            "[\"S20\", \"service levels\"]",
+            "[\"S21\", \"payment terms\"]",
+            "[\"S29\", \"term and termination\"]",
+            "[\"S32\", \"term and termination\"]",
+            "[\"S36\", \"term and termination\"]",
+            "[\"S38\", \"confidentiality\"]",
+            "[\"S4\", \"services and sow\"]",
+            "[\"S46\", \"data protection\"]",
+            "[\"S54\", \"ip ownership\"]",
+            "[\"S56\", \"license grant\"]",
+            "[\"S59\", \"indemnification\"]",
+            "[\"S63\", \"limitation of liability\"]",
+            "[\"S69\", \"insurance\"]",
+            "[\"S73\", \"independent contractor\"]",
+            "[\"S74\", \"non solicitation\"]",
+            "[\"S75\", \"compliance\"]",
+            "[\"S77\", \"audit rights\"]",
+            "[\"S78\", \"force majeure\"]",
+            "[\"S80\", \"notices\"]",
+            "[\"S83\", \"governing law\"]",
+            "[\"S84\", \"dispute resolution\"]",
+            "[\"S85\", \"dispute resolution\"]",
+            "[\"S88\", \"assignment\"]",
+            "[\"S89\", \"entire agreement\"]",
+            "[\"S90\", \"amendment\"]",
+            "[\"S91\", \"severability\"]",
+            "[\"S93\", \"counterparts\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S36\", \"transition assistance\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S73\", \"independent contractor\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ],
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S87\", \"independent contractor\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ],
+            [
+              "[\"S10\", \"representations and warranties\"]",
+              "[\"S14\", \"acceptance\"]",
+              "[\"S16\", \"service levels\"]",
+              "[\"S19\", \"service levels\"]",
+              "[\"S20\", \"service levels\"]",
+              "[\"S21\", \"payment terms\"]",
+              "[\"S29\", \"term and termination\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S36\", \"term and termination\"]",
+              "[\"S38\", \"confidentiality\"]",
+              "[\"S4\", \"services and sow\"]",
+              "[\"S46\", \"data protection\"]",
+              "[\"S54\", \"ip ownership\"]",
+              "[\"S56\", \"license grant\"]",
+              "[\"S59\", \"indemnification\"]",
+              "[\"S63\", \"limitation of liability\"]",
+              "[\"S69\", \"insurance\"]",
+              "[\"S74\", \"non solicitation\"]",
+              "[\"S75\", \"compliance\"]",
+              "[\"S77\", \"audit rights\"]",
+              "[\"S78\", \"force majeure\"]",
+              "[\"S80\", \"notices\"]",
+              "[\"S83\", \"governing law\"]",
+              "[\"S84\", \"dispute resolution\"]",
+              "[\"S85\", \"dispute resolution\"]",
+              "[\"S88\", \"assignment\"]",
+              "[\"S89\", \"entire agreement\"]",
+              "[\"S90\", \"amendment\"]",
+              "[\"S91\", \"severability\"]",
+              "[\"S93\", \"counterparts\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"S36\", \"term and termination\"]",
+            "[\"S36\", \"transition assistance\"]",
+            "[\"S73\", \"independent contractor\"]",
+            "[\"S87\", \"independent contractor\"]"
+          ]
+        },
+        {
+          "source_call_id": "f2b57e8c-4a0e-41fa-a4f3-5cae3cc61231",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.7971014492753623,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.7717391304347826,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0,
+            "segment_agreement": 0.7272727272727273
+          },
+          "stored_decision": [
+            "[\"S13\", \"confidentiality\"]",
+            "[\"S17\", \"confidentiality\"]",
+            "[\"S24\", \"confidentiality\"]",
+            "[\"S28\", \"confidentiality\"]",
+            "[\"S32\", \"term and termination\"]",
+            "[\"S37\", \"remedies\"]",
+            "[\"S40\", \"limitation of liability\"]",
+            "[\"S42\", \"governing law\"]",
+            "[\"S44\", \"dispute resolution\"]",
+            "[\"S45\", \"dispute resolution\"]",
+            "[\"S46\", \"ip ownership\"]",
+            "[\"S48\", \"warranty\"]",
+            "[\"S51\", \"data protection\"]",
+            "[\"S52\", \"export control\"]",
+            "[\"S53\", \"no publicity\"]",
+            "[\"S54\", \"notices\"]",
+            "[\"S55\", \"assignment\"]",
+            "[\"S56\", \"entire agreement\"]",
+            "[\"S57\", \"amendment\"]",
+            "[\"S58\", \"severability\"]",
+            "[\"S60\", \"counterparts\"]",
+            "[\"S9\", \"confidentiality\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"S13\", \"confidentiality\"]",
+              "[\"S17\", \"confidentiality\"]",
+              "[\"S24\", \"confidentiality\"]",
+              "[\"S28\", \"confidentiality\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S37\", \"remedies\"]",
+              "[\"S42\", \"governing law\"]",
+              "[\"S46\", \"ip ownership\"]",
+              "[\"S51\", \"data protection\"]",
+              "[\"S52\", \"export control\"]",
+              "[\"S53\", \"no publicity\"]",
+              "[\"S54\", \"notices\"]",
+              "[\"S55\", \"assignment\"]",
+              "[\"S56\", \"entire agreement\"]",
+              "[\"S57\", \"amendment\"]",
+              "[\"S58\", \"severability\"]",
+              "[\"S59\", \"relationship of parties\"]",
+              "[\"S60\", \"counterparts\"]",
+              "[\"S9\", \"confidentiality\"]"
+            ],
+            [
+              "[\"S13\", \"confidentiality\"]",
+              "[\"S17\", \"confidentiality\"]",
+              "[\"S24\", \"confidentiality\"]",
+              "[\"S28\", \"confidentiality\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S37\", \"remedies\"]",
+              "[\"S40\", \"limitation of liability\"]",
+              "[\"S42\", \"governing law\"]",
+              "[\"S43\", \"dispute resolution\"]",
+              "[\"S46\", \"ip ownership\"]",
+              "[\"S48\", \"warranty\"]",
+              "[\"S51\", \"data protection\"]",
+              "[\"S53\", \"confidentiality\"]",
+              "[\"S54\", \"notices\"]",
+              "[\"S55\", \"assignment\"]",
+              "[\"S56\", \"entire agreement\"]",
+              "[\"S57\", \"amendment\"]",
+              "[\"S58\", \"severability\"]",
+              "[\"S60\", \"counterparts\"]",
+              "[\"S9\", \"confidentiality\"]"
+            ],
+            [
+              "[\"S13\", \"confidentiality\"]",
+              "[\"S17\", \"confidentiality\"]",
+              "[\"S24\", \"confidentiality\"]",
+              "[\"S28\", \"confidentiality\"]",
+              "[\"S32\", \"term and termination\"]",
+              "[\"S37\", \"remedies\"]",
+              "[\"S42\", \"governing law\"]",
+              "[\"S46\", \"ip ownership\"]",
+              "[\"S51\", \"data protection\"]",
+              "[\"S52\", \"export control\"]",
+              "[\"S53\", \"no publicity\"]",
+              "[\"S54\", \"notices\"]",
+              "[\"S55\", \"assignment\"]",
+              "[\"S56\", \"entire agreement\"]",
+              "[\"S57\", \"amendment\"]",
+              "[\"S58\", \"severability\"]",
+              "[\"S59\", \"relationship of parties\"]",
+              "[\"S60\", \"counterparts\"]",
+              "[\"S9\", \"confidentiality\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"S40\", \"limitation of liability\"]",
+            "[\"S43\", \"dispute resolution\"]",
+            "[\"S48\", \"warranty\"]",
+            "[\"S52\", \"export control\"]",
+            "[\"S53\", \"confidentiality\"]",
+            "[\"S53\", \"no publicity\"]",
+            "[\"S59\", \"relationship of parties\"]"
+          ]
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 0.0,
+        "mean_jaccard": 0.8811433912652205,
+        "pct_replays_match_original": 0.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0,
+        "mean_segment_agreement": 0.837085248453783
+      }
+    },
+    "renewal_extraction": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "4bee6264-9e15-4699-b121-9b61c73efc79",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"auto_renews\", true]",
+            "[\"end_date\", \"2027-06-26\"]",
+            "[\"initial\", [6, \"months\"]]",
+            "[\"max_renewals\", null]",
+            "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+            "[\"notice\", \"non_renewal\", \"us\", 30, \"days\"]",
+            "[\"renewal_term\", [1, \"years\"]]",
+            "[\"term_kind\", \"fixed\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-06-26\"]",
+              "[\"initial\", [6, \"months\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+              "[\"notice\", \"non_renewal\", \"us\", 30, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-06-26\"]",
+              "[\"initial\", [6, \"months\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+              "[\"notice\", \"non_renewal\", \"us\", 30, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-06-26\"]",
+              "[\"initial\", [6, \"months\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+              "[\"notice\", \"non_renewal\", \"us\", 30, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "c49e2d0f-38a4-47b6-b16d-1d9d647fbae4",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.8333333333333334,
+            "runs": 3,
+            "matches_original": 2,
+            "original_jaccard": 0.9166666666666666,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"auto_renews\", false]",
+            "[\"end_date\", null]",
+            "[\"initial\", [3, \"years\"]]",
+            "[\"max_renewals\", null]",
+            "[\"notice\", \"termination_for_convenience\", \"either\", 30, \"days\"]",
+            "[\"renewal_term\", [null, null]]",
+            "[\"term_kind\", \"fixed\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", 0]",
+              "[\"notice\", \"termination_for_convenience\", \"either\", 30, \"days\"]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"termination_for_convenience\", \"either\", 30, \"days\"]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"termination_for_convenience\", \"either\", 30, \"days\"]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"max_renewals\", 0]",
+            "[\"max_renewals\", null]"
+          ]
+        },
+        {
+          "source_call_id": "6dfd80e4-1f0c-47cb-a203-7c408b2a7cfe",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"auto_renews\", false]",
+            "[\"end_date\", null]",
+            "[\"initial\", [3, \"years\"]]",
+            "[\"max_renewals\", null]",
+            "[\"renewal_term\", [null, null]]",
+            "[\"term_kind\", \"fixed\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", false]",
+              "[\"end_date\", null]",
+              "[\"initial\", [3, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"renewal_term\", [null, null]]",
+              "[\"term_kind\", \"fixed\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "15aa011e-fbf5-4f62-8d1d-4423464f9435",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.8518518518518517,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.07692307692307693,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"auto_renews\", null]",
+            "[\"end_date\", null]",
+            "[\"initial\", [null, null]]",
+            "[\"max_renewals\", null]",
+            "[\"renewal_term\", [\"raw\", \"1 year\"]]",
+            "[\"term_kind\", null]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-11-30\"]",
+              "[\"initial\", [1, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"either\", 90, \"days\"]",
+              "[\"notice\", \"termination_for_convenience\", \"counterparty\", 60, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-11-30\"]",
+              "[\"initial\", [1, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+              "[\"notice\", \"non_renewal\", \"either\", 90, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ],
+            [
+              "[\"auto_renews\", true]",
+              "[\"end_date\", \"2027-11-30\"]",
+              "[\"initial\", [1, \"years\"]]",
+              "[\"max_renewals\", null]",
+              "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+              "[\"notice\", \"non_renewal\", \"either\", 90, \"days\"]",
+              "[\"renewal_term\", [1, \"years\"]]",
+              "[\"term_kind\", \"fixed\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"notice\", \"non_renewal\", \"counterparty\", 60, \"days\"]",
+            "[\"notice\", \"termination_for_convenience\", \"counterparty\", 60, \"days\"]"
+          ]
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 50.0,
+        "mean_jaccard": 0.9212962962962963,
+        "pct_replays_match_original": 66.66666666666667,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "obligation_extraction": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "0a6a5349-2f09-4598-b69e-49c704c2bc84",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.04,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 12]",
+            "[\"ob\", \"amendment restriction\", \"aegis pharma ltd and globex corporation\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"assignment restriction\", \"aegis pharma ltd and globex corporation\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"certification written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidential destruction information return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"disclosure\"]]",
+            "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"cooperation notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"data protection security\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"notice termination\", \"either party\", [\"condition\", 30, \"days\", \"before\", \"notice_received\"]]",
+            "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment formality\", \"either party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compelled disclosure notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"protection security standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment formality\", \"either party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compelled disclosure notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"protection security standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment formality\", \"either party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compelled disclosure notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"protection security standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "7f14b52f-c607-4f6c-8443-d8c20691a9bd",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.3650499861499332,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.10862862862862864,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 42]",
+            "[\"ob\", \"approval restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"assignment restriction\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"assistance transition\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"audit keeping record\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"other\"]]",
+            "[\"ob\", \"compliance contractual\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance personnel\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"confidentiality\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"cooperation notice\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"data location\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"data return\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"delivery service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"disclosure notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"disclosure notice\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"dispute resolution\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"documentation tax\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"indemnification\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"level service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"mitigation notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"notice price\", \"initech software ltd\", [\"deadline\", 90, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"notice remediation\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"other\"]]",
+            "[\"ob\", \"notice right termination\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"notice\", \"aegis audit test entity pvt ltd\", [\"deadline\", 60, \"days\", \"before\", \"expiration_date\"]]",
+            "[\"ob\", \"notice\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"payment refund\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"deadline\", 45, \"days\", \"after\", \"invoice_received\"]]",
+            "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"payment\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"payment\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"remedy warranty\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"remedy\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"restriction subcontracting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"restriction\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"restriction\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 38]",
+              "[\"ob\", \"assistance data exit return\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"assistance transition\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"audit cooperation keeping record\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"availability level service\", \"initech software ltd\", [\"ongoing\", 5, \"business_days\", \"before\", \"effective_date\"]]",
+              "[\"ob\", \"cancellation notice\", \"aegis audit test entity pvt ltd\", [\"deadline\", 60, \"days\", \"before\", \"expiration_date\"]]",
+              "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"certification reporting security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"claim indemnification management\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compelled confidentiality disclosure\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compliance data dpa execution protection\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"compliance tax\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality control disclosure\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"confidentiality\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"continuity restriction service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"credit remedy service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"data localisation\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction transfer\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction use\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service support\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"dispute resolution\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"force majeure mitigation notification\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"incident management reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"notice_received\"]]",
+              "[\"ob\", \"increase notice price\", \"initech software ltd\", [\"deadline\", 90, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"indemnification restriction settlement\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"infringement ip remedy\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"management notice processor sub\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"notice reminder renewal\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"deadline\", 45, \"days\", \"after\", \"invoice_received\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"invoice_received\"]]",
+              "[\"ob\", \"personnel training\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"prohibited restriction use\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"refund\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"remedy warranty\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"restriction subcontracting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 41]",
+              "[\"ob\", \"assignment restriction\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"assistance data exit return\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"assistance transition\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"audit cooperation keeping record\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"availability level service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"breach remedy\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"cancellation notice\", \"aegis audit test entity pvt ltd\", [\"deadline\", 60, \"days\", \"before\", \"expiration_date\"]]",
+              "[\"ob\", \"certification compliance\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"other\"]]",
+              "[\"ob\", \"compelled confidentiality disclosure notice\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compliance data protection\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"compliance tax\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality disclosure restriction\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"confidentiality\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cooperation indemnification notice\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"credit payment service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"data localisation\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction transfer\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction use\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service support\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"dispute resolution\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"force majeure mitigation notice\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"other\"]]",
+              "[\"ob\", \"increase notice price\", \"initech software ltd\", [\"deadline\", 90, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"indemnification restriction settlement\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"infringement ip remedy\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice processor sub transparency\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"notice reminder renewal\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"deadline\", 45, \"days\", \"after\", \"invoice_received\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"personnel training\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"prohibition restriction\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"prohibition restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"refund right termination\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"refund\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"remedy warranty\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction subcontracting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 40]",
+              "[\"ob\", \"assistance data exit return\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"assistance transition\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"audit cooperation keeping record\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"availability level service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cancellation notice\", \"aegis audit test entity pvt ltd\", [\"deadline\", 60, \"days\", \"before\", \"expiration_date\"]]",
+              "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"certification reporting security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"compelled disclosure notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compliance data dpa execution protection\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"compliance tax\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality disclosure restriction\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"confidentiality\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"credit remedy service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"cure notice period termination\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"data localisation\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction transfer\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data restriction use\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"data security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service support\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"delivery service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"disclosure notice processor sub\", \"initech software ltd\", [\"ongoing\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"dispute procedure resolution\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"force majeure mitigation notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"incident management reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"disclosure\"]]",
+              "[\"ob\", \"increase notice price\", \"initech software ltd\", [\"deadline\", 90, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"indemnification procedure restriction\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"indemnification procedure\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"indemnification\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"infringement ip remedy\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"notice reminder renewal\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"deadline\", 45, \"days\", \"after\", \"invoice_received\"]]",
+              "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"invoice_received\"]]",
+              "[\"ob\", \"personnel training\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"prohibition restriction\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"prohibition restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"refund\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"remedy warranty\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"restriction subcontracting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"count\", 38]",
+            "[\"count\", 40]",
+            "[\"count\", 41]",
+            "[\"ob\", \"assignment restriction\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"availability level service\", \"initech software ltd\", [\"ongoing\", 5, \"business_days\", \"before\", \"effective_date\"]]",
+            "[\"ob\", \"availability level service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"breach remedy\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"certification compliance\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"other\"]]",
+            "[\"ob\", \"certification data deletion\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"certification reporting security\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"claim indemnification management\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled confidentiality disclosure notice\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled confidentiality disclosure\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled disclosure notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compliance data dpa execution protection\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance data dpa execution protection\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance data protection\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance tax\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compliance tax\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality control disclosure\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"confidentiality disclosure restriction\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"confidentiality disclosure restriction\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"confidentiality\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"confidentiality\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"continuity restriction service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"cooperation indemnification notice\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"credit payment service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"credit remedy service\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"cure notice period termination\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"disclosure notice processor sub\", \"initech software ltd\", [\"ongoing\", 30, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"dispute procedure resolution\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"dispute resolution\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"dispute resolution\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"deadline\", 30, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"force majeure mitigation notice\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"force majeure mitigation notice\", \"initech software ltd and aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"force majeure mitigation notification\", \"aegis audit test entity pvt ltd and initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"incident management reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"incident management reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"disclosure\"]]",
+            "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"notice_received\"]]",
+            "[\"ob\", \"incident notification security\", \"initech software ltd\", [\"deadline\", 72, null, \"after\", \"other\"]]",
+            "[\"ob\", \"indemnification procedure restriction\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"indemnification procedure\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"indemnification restriction settlement\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"indemnification\", \"initech software ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"invoicing\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"management notice processor sub\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"notice processor sub transparency\", \"initech software ltd\", [\"deadline\", 30, \"days\", \"before\", \"other\"]]",
+            "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"payment\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"invoice_received\"]]",
+            "[\"ob\", \"prohibited restriction use\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"prohibition restriction\", \"aegis audit test entity pvt ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"prohibition restriction\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"refund right termination\", \"aegis audit test entity pvt ltd\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"reporting\", \"initech software ltd\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+          ]
+        },
+        {
+          "source_call_id": "be7335a5-b77e-4bbf-ab36-55d480de8d72",
+          "stored_prompt_version": "2.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.05981512302640457,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 25]",
+            "[\"ob\", \"deliverable\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"duty ongoing\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"duty ongoing\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"duty ongoing\", \"receiving party\", [\"condition\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"duty ongoing\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"expiration_date\"]]",
+            "[\"ob\", \"duty ongoing\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"expiration_date\"]]",
+            "[\"ob\", \"duty ongoing\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"notice\", \"each party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"notice\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+            "[\"ob\", \"notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"notice\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"payment\", \"non prevailing party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"reporting\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"restriction\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"restriction\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 27]",
+              "[\"ob\", \"agreement data protection\", \"both parties\", [\"condition\", null, null, \"before\", \"disclosure\"]]",
+              "[\"ob\", \"amendment formality restriction\", \"both parties\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"assignment no restriction\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"breach notice notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"care standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"certification destruction or return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"compelled cooperation disclosure\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"compelled disclosure notice\", \"receiving party\", [\"deadline\", null, null, \"after\", \"notice_received\"]]",
+              "[\"ob\", \"compliance control export\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"compliance data protection\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"confidential destruction information return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"confidential disclosure minimum notice treatment\", \"receiving party\", [\"deadline\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality secret survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality survival\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"termination\"]]",
+              "[\"ob\", \"consent disclosure requirement restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"cooperation remediation\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"data destruction electronic standard\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"disclosure minimum restriction\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"fees legal payment\", \"non prevailing party\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"formality notice\", \"each party\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"information notice retained\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+              "[\"ob\", \"liability responsibility vicarious\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"no publicity restriction\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+              "[\"ob\", \"permitted restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"prohibition restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]"
+            ],
+            [
+              "[\"count\", 22]",
+              "[\"ob\", \"agreement compliance data further protection\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"amendment formality\", \"local legal clm and acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment consent no restriction without\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"breach cooperation notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"other\"]]",
+              "[\"ob\", \"care standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"certification confirmation written\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"other\"]]",
+              "[\"ob\", \"compelled cooperation disclosure notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compelled disclosure disclosure minimum\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compliance control export regulatory\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"confidential destruction information return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"expiration_date\"]]",
+              "[\"ob\", \"confidentiality survival\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"expiration_date\"]]",
+              "[\"ob\", \"consent disclosure requirement restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"consent no publicity requirement\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"cost fee recovery shifting\", \"local legal clm or acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"delivery formality notice requirement\", \"local legal clm and acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"destruction electronic notification retention\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"liability responsibility vicarious\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"notice termination\", \"local legal clm or acme corp\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+              "[\"ob\", \"permitted restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+              "[\"ob\", \"prohibition restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]"
+            ],
+            [
+              "[\"count\", 21]",
+              "[\"ob\", \"agreement compliance data data personal processing\", \"receiving party\", [\"condition\", null, null, \"after\", \"disclosure\"]]",
+              "[\"ob\", \"ai prohibition restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"amendment formality\", \"both parties\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment consent requirement restriction\", \"each party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"breach cooperation notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"notice_received\"]]",
+              "[\"ob\", \"care standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction or return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"compelled cooperation disclosure notice\", \"receiving party\", [\"deadline\", null, null, \"before\", \"notice_received\"]]",
+              "[\"ob\", \"compelled delayed disclosure minimization notice\", \"receiving party\", [\"deadline\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"compliance control export\", \"each party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+              "[\"ob\", \"confidentiality survival\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"expiration_date\"]]",
+              "[\"ob\", \"consent disclosure requirement restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"copying prohibition restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cost fee recovery shifting\", \"non prevailing party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"destruction electronic notification retention\", \"receiving party\", [\"condition\", null, null, \"after\", \"termination\"]]",
+              "[\"ob\", \"formality notice\", \"each party\", [\"condition\", null, null, \"after\", \"notice_received\"]]",
+              "[\"ob\", \"indefinite secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"expiration_date\"]]",
+              "[\"ob\", \"marks name no no or publicity use\", \"each party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"count\", 21]",
+            "[\"count\", 22]",
+            "[\"count\", 27]",
+            "[\"ob\", \"agreement compliance data data personal processing\", \"receiving party\", [\"condition\", null, null, \"after\", \"disclosure\"]]",
+            "[\"ob\", \"agreement compliance data further protection\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"agreement data protection\", \"both parties\", [\"condition\", null, null, \"before\", \"disclosure\"]]",
+            "[\"ob\", \"ai prohibition restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"amendment formality restriction\", \"both parties\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"amendment formality\", \"both parties\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"amendment formality\", \"local legal clm and acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"assignment consent no restriction without\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"assignment consent requirement restriction\", \"each party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"assignment no restriction\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"breach cooperation notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"breach cooperation notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"other\"]]",
+            "[\"ob\", \"breach notice notification\", \"receiving party\", [\"deadline\", 48, \"days\", \"after\", \"notice_received\"]]",
+            "[\"ob\", \"care standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"care standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"certification confirmation written\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"other\"]]",
+            "[\"ob\", \"certification destruction or return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"compelled cooperation disclosure notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled cooperation disclosure notice\", \"receiving party\", [\"deadline\", null, null, \"before\", \"notice_received\"]]",
+            "[\"ob\", \"compelled cooperation disclosure\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"compelled delayed disclosure minimization notice\", \"receiving party\", [\"deadline\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled disclosure disclosure minimum\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"compelled disclosure notice\", \"receiving party\", [\"deadline\", null, null, \"after\", \"notice_received\"]]",
+            "[\"ob\", \"compliance control export regulatory\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"compliance control export\", \"each party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"compliance control export\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"compliance data protection\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"confidential destruction information return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"other\"]]",
+            "[\"ob\", \"confidential destruction information return\", \"receiving party\", [\"deadline\", 10, \"business_days\", \"after\", \"termination\"]]",
+            "[\"ob\", \"confidential disclosure minimum notice treatment\", \"receiving party\", [\"deadline\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality secret survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"confidentiality secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"expiration_date\"]]",
+            "[\"ob\", \"confidentiality survival\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"expiration_date\"]]",
+            "[\"ob\", \"confidentiality survival\", \"receiving party\", [\"ongoing\", 5, \"years\", \"after\", \"termination\"]]",
+            "[\"ob\", \"consent disclosure requirement restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"consent disclosure requirement restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"consent no publicity requirement\", \"local legal clm and acme corp\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"cooperation remediation\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"copying prohibition restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"cost fee recovery shifting\", \"local legal clm or acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"cost fee recovery shifting\", \"non prevailing party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"data destruction electronic standard\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"delivery formality notice requirement\", \"local legal clm and acme corp\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"destruction electronic notification retention\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"destruction electronic notification retention\", \"receiving party\", [\"condition\", null, null, \"after\", \"termination\"]]",
+            "[\"ob\", \"disclosure minimum restriction\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"fees legal payment\", \"non prevailing party\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"formality notice\", \"each party\", [\"condition\", null, null, \"after\", \"notice_received\"]]",
+            "[\"ob\", \"formality notice\", \"each party\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"indefinite secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"expiration_date\"]]",
+            "[\"ob\", \"information notice retained\", \"receiving party\", [\"condition\", null, null, \"after\", null]]",
+            "[\"ob\", \"liability responsibility vicarious\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"marks name no no or publicity use\", \"each party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"no publicity restriction\", \"each party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+            "[\"ob\", \"notice termination\", \"local legal clm or acme corp\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+            "[\"ob\", \"permitted restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"prohibition restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", null]]",
+            "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+          ]
+        },
+        {
+          "source_call_id": "09643a5e-8a59-45f6-a6f9-b58df61f9330",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.5153996101364522,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"count\", 9]",
+            "[\"ob\", \"amendment formality\", \"both parties aegis pharma ltd and globex corporation\", [null, null, null, null, null]]",
+            "[\"ob\", \"assignment restriction\", \"both parties aegis pharma ltd and globex corporation\", [null, null, null, null, null]]",
+            "[\"ob\", \"confidential destruction information return\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]",
+            "[\"ob\", \"confidentiality\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]",
+            "[\"ob\", \"cooperation notice\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]",
+            "[\"ob\", \"disclosure non\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]",
+            "[\"ob\", \"measures protective security\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]",
+            "[\"ob\", \"notice termination\", \"terminating party either aegis pharma ltd or globex corporation\", [null, null, null, null, null]]",
+            "[\"ob\", \"restriction use\", \"receiving party each of aegis pharma ltd and globex corporation in turn\", [null, null, null, null, null]]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment formality\", \"either party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cooperation notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+              "[\"ob\", \"protection security standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality continuing secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality continuing survival\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"disclosure\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cooperation notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"condition\", 30, \"days\", \"after\", \"other\"]]",
+              "[\"ob\", \"protective standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ],
+            [
+              "[\"count\", 12]",
+              "[\"ob\", \"amendment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"assignment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidential destruction information or return\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"other\"]]",
+              "[\"ob\", \"confidentiality\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"cooperation notice\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+              "[\"ob\", \"disclosure disclosure non restriction\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+              "[\"ob\", \"protection standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+              "[\"ob\", \"restriction use\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"ob\", \"amendment formality\", \"either party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"amendment restriction\", \"either party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"certification destruction written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"certification written\", \"receiving party\", [\"condition\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality continuing secrets survival trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality continuing survival\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"disclosure\"]]",
+            "[\"ob\", \"confidentiality post secrets survival termination trade\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"other\"]]",
+            "[\"ob\", \"confidentiality post survival termination\", \"receiving party\", [\"ongoing\", 3, \"years\", \"after\", \"other\"]]",
+            "[\"ob\", \"notice termination\", \"either party\", [\"condition\", 30, \"days\", \"after\", \"other\"]]",
+            "[\"ob\", \"notice termination\", \"either party\", [\"deadline\", 30, \"days\", \"before\", \"termination\"]]",
+            "[\"ob\", \"protection security standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"protection standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]",
+            "[\"ob\", \"protective standard\", \"receiving party\", [\"ongoing\", null, null, \"after\", \"effective_date\"]]"
+          ]
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 25.0,
+        "mean_jaccard": 0.4850661798281975,
+        "pct_replays_match_original": 0.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "portfolio_filter": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "6900787d-50e9-4ab1-aca0-076ccdc7bbb2",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"contract_types\", \"[]\"]",
+            "[\"count_only\", \"false\"]",
+            "[\"counterparty\", \"null\"]",
+            "[\"currency\", \"null\"]",
+            "[\"effective\", \"null\"]",
+            "[\"expires\", \"null\"]",
+            "[\"governing_law\", \"null\"]",
+            "[\"is_list_question\", \"true\"]",
+            "[\"lacks\", \"[]\"]",
+            "[\"n_wording\", 1]",
+            "[\"not_checkable\", \"[]\"]",
+            "[\"risk_bands\", \"[]\"]",
+            "[\"stages\", \"[]\"]",
+            "[\"value_max\", \"null\"]",
+            "[\"value_min\", \"null\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ],
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ],
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "85661df9-9d14-415d-ba8b-28e136292e33",
+          "stored_prompt_version": "1.0.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"contract_types\", \"[]\"]",
+            "[\"count_only\", \"false\"]",
+            "[\"counterparty\", \"null\"]",
+            "[\"currency\", \"null\"]",
+            "[\"effective\", \"null\"]",
+            "[\"expires\", \"null\"]",
+            "[\"governing_law\", \"null\"]",
+            "[\"is_list_question\", \"true\"]",
+            "[\"lacks\", \"[]\"]",
+            "[\"n_wording\", 1]",
+            "[\"not_checkable\", \"[]\"]",
+            "[\"risk_bands\", \"[]\"]",
+            "[\"stages\", \"[]\"]",
+            "[\"value_max\", \"null\"]",
+            "[\"value_min\", \"null\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ],
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ],
+            [
+              "[\"contract_types\", \"[]\"]",
+              "[\"count_only\", \"false\"]",
+              "[\"counterparty\", \"null\"]",
+              "[\"currency\", \"null\"]",
+              "[\"effective\", \"null\"]",
+              "[\"expires\", \"null\"]",
+              "[\"governing_law\", \"null\"]",
+              "[\"is_list_question\", \"true\"]",
+              "[\"lacks\", \"[]\"]",
+              "[\"n_wording\", 1]",
+              "[\"not_checkable\", \"[]\"]",
+              "[\"risk_bands\", \"[]\"]",
+              "[\"stages\", \"[]\"]",
+              "[\"value_max\", \"null\"]",
+              "[\"value_min\", \"null\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 2,
+        "pct_stable": 100.0,
+        "mean_jaccard": 1.0,
+        "pct_replays_match_original": 100.0,
+        "replays_planned": 6,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "tabular_cell_extraction": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "c28ef56d-31a6-41b2-ae72-2f4f9b483d8a",
+          "stored_prompt_version": "1.1.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"not_found\", false]",
+            "[\"value\", \"no\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "1e342770-f269-404c-999f-b8007d704a3e",
+          "stored_prompt_version": "1.1.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"not_found\", false]",
+            "[\"value\", \"no\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "320097e3-d9af-4f1a-9b65-61e3b1ccade7",
+          "stored_prompt_version": "1.1.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.5555555555555555,
+            "runs": 3,
+            "matches_original": 1,
+            "original_jaccard": 0.5555555555555555,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"not_found\", false]",
+            "[\"value\", \"yes\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"yes\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"value\", \"no\"]",
+            "[\"value\", \"yes\"]"
+          ]
+        },
+        {
+          "source_call_id": "de10b26c-86aa-4d15-9c6b-d064f5841ff7",
+          "stored_prompt_version": "1.1.0",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.3333333333333333,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"not_found\", false]",
+            "[\"value\", \"yes\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ],
+            [
+              "[\"not_found\", false]",
+              "[\"value\", \"no\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 75.0,
+        "mean_jaccard": 0.8888888888888888,
+        "pct_replays_match_original": 58.333333333333336,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    },
+    "contract_edit_suggestions": {
+      "skipped": {},
+      "inputs": [
+        {
+          "source_call_id": "1d89a54c-a3a9-4cd1-b86c-33c2fe5589b4",
+          "stored_prompt_version": "1.0.1",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.3333333333333333,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"insertions\", 0]",
+            "[\"span\", \"if the provider fails to meet a service level the provider shall credit the customer with the service credits specified in the statement of work service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the services not an estimate of loss and are without prejudice to the customer s other rights and remedies\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"if the provider fails to meet a service level the provider shall credit the customer with the service credits specified in the statement of work which shall in no event be less than the minimum percentage of the monthly fees for the affected service for each month in which the failure occurs as agreed and specified in the statement of work up to a maximum of ten percent 10 of the monthly fees for that service service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the services not an estimate of loss and are without prejudice to the customer s other rights and remedies\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"if the provider fails to meet a service level the provider shall credit the customer with the service credits specified in the statement of work which shall in no event be less than the minimum percentage of the monthly fees for the affected service for each month in which the failure occurs as agreed and specified in the statement of work up to a maximum of ten percent 10 of the monthly fees for that service service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the services not an estimate of loss and are without prejudice to the customer s other rights and remedies\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"if the provider fails to meet a service level the provider shall credit the customer with the service credits specified in the statement of work which shall in no event be less than the minimum percentage of the monthly fees for the affected service for each month in which the failure occurs as agreed and specified in the statement of work up to a maximum of ten percent 10 of the monthly fees for that service service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the services not an estimate of loss and are without prejudice to the customer s other rights and remedies\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "cddddc8f-04e1-4d40-aff2-e0963ef12a28",
+          "stored_prompt_version": "1.0.1",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.3333333333333333,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"insertions\", 0]",
+            "[\"span\", \"this agreement shall be governed by and construed in accordance with the laws of india without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of india for resolution of any dispute arising out of or relating to this agreement\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of aegis pharma ltd home state country to be confirmed by legal without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of aegis pharma ltd home jurisdiction to be confirmed by legal for resolution of any dispute arising out of or relating to this agreement\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of aegis pharma ltd home state country to be confirmed by legal without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of aegis pharma ltd home jurisdiction to be confirmed by legal for resolution of any dispute arising out of or relating to this agreement\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of aegis pharma ltd home state country to be confirmed by legal without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of aegis pharma ltd home jurisdiction to be confirmed by legal for resolution of any dispute arising out of or relating to this agreement\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        },
+        {
+          "source_call_id": "883c2616-d1f1-4c3b-bce9-683dce0b6d69",
+          "stored_prompt_version": "1.0.1",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": false,
+            "jaccard": 0.6666666666666666,
+            "runs": 3,
+            "matches_original": 0,
+            "original_jaccard": 0.38888888888888884,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"insertions\", 0]",
+            "[\"span\", \"this agreement shall be governed by and construed in accordance with the laws of india without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of india for resolution of any dispute arising out of or relating to this agreement\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"insertions\", 0]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of england and wales without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of england and wales for resolution of any dispute arising out of or relating to this agreement\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of england and wales without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of england and wales for resolution of any dispute arising out of or relating to this agreement\"]"
+            ]
+          ],
+          "disagreeing_atoms": [
+            "[\"span\", \"9 1 this agreement shall be governed by and construed in accordance with the laws of england and wales without regard to its conflict of laws principles each party irrevocably submits to the exclusive jurisdiction of the courts of england and wales for resolution of any dispute arising out of or relating to this agreement\"]"
+          ]
+        },
+        {
+          "source_call_id": "497b359b-d5e6-4daa-a017-9d5ff15ef2e7",
+          "stored_prompt_version": "1.0.1",
+          "notes": [
+            "scored from the ledger"
+          ],
+          "errors": [],
+          "uncomparable": [],
+          "stored_uncomparable": null,
+          "metrics": {
+            "scored": true,
+            "stable": true,
+            "jaccard": 1.0,
+            "runs": 3,
+            "matches_original": 3,
+            "original_jaccard": 1.0,
+            "planned": 3,
+            "failed": 0,
+            "truncated": 0,
+            "uncomparable": 0
+          },
+          "stored_decision": [
+            "[\"insertions\", 0]",
+            "[\"span\", \"its indemnification obligations including the provider s obligations under clause 14 indemnification which are not subject to any cap\"]"
+          ],
+          "replay_decisions": [
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"its indemnification obligations including the provider s obligations under clause 14 indemnification which are not subject to any cap\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"its indemnification obligations including the provider s obligations under clause 14 indemnification which are not subject to any cap\"]"
+            ],
+            [
+              "[\"insertions\", 0]",
+              "[\"span\", \"its indemnification obligations including the provider s obligations under clause 14 indemnification which are not subject to any cap\"]"
+            ]
+          ],
+          "disagreeing_atoms": []
+        }
+      ],
+      "metrics": {
+        "inputs_scored": 4,
+        "pct_stable": 75.0,
+        "mean_jaccard": 0.9166666666666666,
+        "pct_replays_match_original": 25.0,
+        "replays_planned": 12,
+        "replays_failed": 0,
+        "replays_truncated": 0,
+        "replays_uncomparable": 0
+      }
+    }
+  },
+  "not_measured": {
+    "assistant_streaming": "Ask Aegis is a tool loop that writes assistant runs, messages, tool calls and (draft / extract / confirm tools) contracts, jobs and edits; no read-only replay of the production loop exists."
+  },
+  "ranking": [
+    "clause_labeling",
+    "obligation_extraction",
+    "playbook_review",
+    "intake_form_read",
+    "contract_metadata_extraction",
+    "renewal_extraction",
+    "tabular_cell_extraction",
+    "contract_edit_suggestions",
+    "intake_triage",
+    "email_triage_agent",
+    "portfolio_filter"
+  ],
+  "errors": 5,
+  "complete": true
+}

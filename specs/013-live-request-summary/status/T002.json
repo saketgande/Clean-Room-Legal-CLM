@@ -1,0 +1,1 @@
+{"task": "T002", "agent": "frontend-dev", "status": "done", "detail": "types + intakeApi.requestSummary added; typecheck clean (2 known docstudio errors), 1914 tests pass", "updated": "2026-10-27T09:25:34Z"}

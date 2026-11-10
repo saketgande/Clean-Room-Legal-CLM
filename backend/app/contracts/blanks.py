@@ -18,7 +18,11 @@ from __future__ import annotations
 import re
 
 MAX_LISTED = 20
-_MAX_INSIDE = 120
+# Was 120, and a long drafting note slipped past the signature gate ("[Name each individual who will
+# perform the Services. The Consultant shall not replace them …]", 134 inside). Measured 2026-10-15 on
+# all 1,642 stored snapshots: raising it newly flags one bracket, a "[DELETE — duplicate provision …]"
+# note, and no clean contract. The bound only keeps a runaway line from being listed whole.
+_MAX_INSIDE = 2000
 
 _BRACKET = re.compile(r"\[([^\[\]\n]{1," + str(_MAX_INSIDE) + r"})\]")
 

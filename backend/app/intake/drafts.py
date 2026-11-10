@@ -21,7 +21,7 @@ def serialize(d: IntakeDraft) -> dict:
     return {
         "id": d.id, "form_key": d.form_key, "title": d.title, "values": d.values or {},
         "parent_contract_id": d.parent_contract_id, "page_index": d.page_index,
-        "visited": d.visited, "created_at": d.created_at, "updated_at": d.updated_at,
+        "visited": d.visited, "summary_box": d.summary_box, "created_at": d.created_at, "updated_at": d.updated_at,
     }
 
 
@@ -58,6 +58,7 @@ def save(db: Session, *, actor: User, payload, draft_id: str | None = None) -> d
     d.parent_contract_id = payload.parent_contract_id or None
     d.page_index = payload.page_index
     d.visited = payload.visited
+    d.summary_box = payload.summary_box if isinstance(payload.summary_box, dict) else None
     db.commit()
     db.refresh(d)
     return serialize(d)

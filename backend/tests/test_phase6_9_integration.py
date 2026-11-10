@@ -10,6 +10,7 @@ from app.contract_brain.routes import list_brain_queries
 from app.integrations.docusign import DocuSignClient
 from app.jobs import tasks
 from app.obligations.routes import _get_obligation, list_obligations
+from app.obligations.service import visible_obligations
 from app.renewals.routes import _get_renewal, list_renewals
 from app.signatures.routes import list_signature_requests, sync_signature
 from app.tabular_review.routes import _get_review_for_user, list_reviews, rerun_cell
@@ -56,6 +57,7 @@ def test_later_phase_routes_reuse_contract_and_project_access_checks():
     checked_sources = [
         inspect.getsource(_get_obligation),
         inspect.getsource(list_obligations),
+        inspect.getsource(visible_obligations),  # the one query behind the obligations list AND its summary tiles
         inspect.getsource(_get_renewal),
         inspect.getsource(list_renewals),
         inspect.getsource(list_signature_requests),
@@ -69,6 +71,10 @@ def test_later_phase_routes_reuse_contract_and_project_access_checks():
 
     assert "get_contract_for_user" in combined
     assert "accessible_contract_filter(current_user)" in combined
+    # The obligations list no longer spells the filter itself: it is applied once, in the query the list and the
+    # summary tiles share, so that is where it has to be.
+    assert "accessible_contract_filter(user)" in inspect.getsource(visible_obligations)
+    assert "visible_obligations(current_user" in inspect.getsource(list_obligations)
     assert "_review_is_accessible" in combined
     assert "_visible_brain_queries" in combined
 

@@ -24,6 +24,8 @@ def _production(**overrides):
         docusign_connect_hmac_key="k" * 32, app_base_url="https://clm.example.com",
         storage_backend="s3", s3_bucket="clm-contracts", allow_local_storage_in_production=False,
         disable_rbac=False,
+        # Reminders are emailed through Resend; CI has no .env, so a safe config names its own.
+        resend_api_key="re_test_key", resend_from_email="legal@clm.example.org",
     )
     return settings.model_copy(update={**safe, **overrides})
 

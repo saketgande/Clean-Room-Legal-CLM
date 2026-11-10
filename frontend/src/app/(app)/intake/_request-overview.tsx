@@ -1,71 +1,60 @@
 "use client";
 
-// Request Overview — a port of Screen 3: the request dossier. Header + pinned
-// stage tracker, the request summary + AI understanding, governance checks, the
-// workflow stages, and an at-a-glance / documents / people / activity rail.
-// Wired to intakeApi (get + documents + handoffs). CLM editor is a linked page.
+// Request Overview — the request dossier, laid out "decision first": a one-line header and a progress strip,
+// then a main column (decision, what was asked, risk, workflow, activity, comments) and a side column
+// (counterparty, people, documents, Ask Aegis). This file owns every query, mutation, effect and typed draft; the
+// cards in the sibling `_request-*.tsx` / `_decision-area.tsx` files are presentational and get props.
 // Scoped under `.ro` (reuses the `.li-board` palette from the shell's CSS).
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { MessageSquarePlus, Sparkles, UserCog, FileText as FileIcon, Building2, LayoutDashboard, ListChecks, FileText, ShieldAlert, Activity, MessagesSquare, Link2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { intakeApi, workflowsApi, brainApi, contractsApi, trademarksApi } from "@/lib/endpoints";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { intakeApi, workflowsApi, contractsApi, trademarksApi, obligationsApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
-import { LoadError } from "@/components/ui";
+import { LoadError, MessageBar, useConfirm } from "@/components/ui";
 import { REVIEW_NOTICE_CSS, StepReviewNotice } from "@/components/review-notice";
 import { interruptedReviewStep, reviewPollInterval } from "@/lib/review-retry";
-import { currentStage, LIFECYCLE, LifecycleView, NextStepCard, stepStage } from "@/components/lifecycle-view";
-import { activityTrail, beforeWorkflow, isBeingSetUp, termFact } from "@/lib/request-facts";
-import { openSteps, stepInFocus } from "@/lib/workflow-steps";
+import { currentStage, LIFECYCLE, stepFacts, stepStage } from "@/components/lifecycle-view";
+import { beforeWorkflow, isBeingSetUp, termFact } from "@/lib/request-facts";
+import { openSteps, overdueWords, plainStepName, readableResult, stepInFocus } from "@/lib/workflow-steps";
 import { stepMeta, waitLabel } from "./_governance-ladder";
 import { NegotiationPanel } from "./_negotiation-panel";
-import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep, ContractDeviation, RiskDriver } from "@/lib/types";
+import { RequestAnswers } from "./_request-answers";
+import { ApprovalCard } from "./_approval-card";
+import { SignatureCard } from "./_signature-card";
+import { RequestHeader, ProgressStrip, StageTimeline, HEADER_CSS } from "./_request-header";
+import { aiIsWorking } from "@/components/lifecycle-view";
+import { canEditObligations } from "@/lib/obligation-access";
+import { DecisionArea, DECISION_CSS, type HumanDecision } from "./_decision-area";
+import { WhatWasAsked, ASKED_CSS } from "./_request-asked";
+import { RiskReview, ReviewHistory, riskFacts, RISK_CSS } from "./_request-risk";
+import { WorkflowCard, STEPS_CSS, type ExtraDetail, type FlowState, type StepRow } from "./_request-steps";
+import { RequestSummarySection, SUMMARY_CSS } from "./_request-summary";
+import { POLISH_CSS, TIMELINE_CSS } from "./_request-polish";
+import { KpiStrip, buildKpis } from "./_request-kpis";
+import { OverviewPane, OVERVIEW_PANE_CSS, type KeyDate } from "./_request-overview-pane";
+import { kindOf } from "./_legal-intake";
+import { ActivityCard, CommentsCard, CounterpartyCard, DocumentsCard, PeopleCard, CARDS_CSS } from "./_request-cards";
+import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime, riskBand, RISK_UNKNOWN_LABEL } from "@/lib/utils";
 
-const SEV_ORDER = ["critical", "high", "medium", "low"] as const;
-type Sev = typeof SEV_ORDER[number];
-const sevOf = (s: string): Sev => { const v = (s || "").toLowerCase(); return (SEV_ORDER as readonly string[]).includes(v) ? v as Sev : "low"; };
-
-// One display row for the workflow — unified over the live WorkflowRun engine (when
-// a run exists) and the static intake stage-spine fallback (before one starts).
-type WfStep = { label: string; tone: "done" | "cur" | "warn" | "todo"; node: string; badge?: string; badgeTone: "done" | "cur" | "warn" | "skip"; skipped?: boolean; sub?: string; sidx?: number; assign?: string; result?: Record<string, unknown> | null };
 const isWaiting = (s?: WorkflowRunStep) => !!s && s.status.startsWith("waiting");
 // The "doorway" for a step: the real tool the owner opens to actually DO the
 // step's work, with the contract in context — not just a "mark done" button.
-const STEP_DOORWAY: Record<string, { label: string; icon: string }> = {
-  clm_draft: { label: "Open the draft", icon: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>' },
-  human_task: { label: "Review & redline", icon: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>' },
-  counterparty: { label: "Open to negotiate", icon: '<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>' },
-};
+const STEP_DOORWAY = {
+  clm_draft: "Open the draft",
+  human_task: "Review & redline",
+  counterparty: "Open to negotiate",
+} as const;
 const assignOf = (s: WorkflowRunStep): string | undefined => {
   const who = s.assignee_label;
   const grp = s.team_label ?? undefined;
   if (who && grp) return `${who} · ${grp}`;
   return who ?? grp ?? undefined;
 };
-// The meaningful outputs an AI/subsystem step produced, as label→value pairs.
-function resultRows(res: Record<string, unknown> | null | undefined): [string, string][] {
-  if (!res) return [];
-  const pct = (v: unknown) => `${Math.round(Number(v) * 100)}%`;
-  const rows: [string, string][] = [];
-  const push = (k: string, v: unknown) => { if (v != null && v !== "") rows.push([k, String(v)]); };
-  if (res.risk_band) push("Risk", res.risk_band === "unknown" ? RISK_UNKNOWN_LABEL : res.risk_band);
-  if (res.confidence != null) push("Confidence", pct(res.confidence));
-  push("Category", res.category);
-  push("Matter", res.matter_type);
-  push("Severity", res.severity);
-  if (res.notification_required != null) push("Breach notice", res.notification_required ? "required" : "not required");
-  push("Summary", res.summary);
-  const drivers = res.top_drivers ?? res.affected_data_categories ?? res.statutory_deadlines;
-  if (Array.isArray(drivers) && drivers.length) push("Drivers", drivers.map((d) => (typeof d === "string" ? d : (d as { label?: string; name?: string }).label ?? (d as { name?: string }).name ?? JSON.stringify(d))).slice(0, 4).join(", "));
-  return rows;
-}
-
-const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
-const WARN_ICON = '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>';
-const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
 // Which doc type this request can auto-draft (mirrors the intake service's
 // heuristic). null ⇒ not a draft-able contract request.
@@ -88,8 +77,9 @@ function counterpartyOf(r: IntakeRequest): string | null {
   return null;
 }
 
-export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
+export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: string; onBack: () => void; canManage: boolean; onOpenRequest?: (id: string) => void }) {
   const qc = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const router = useRouter();
   const { notify } = useToast();
   const { user } = useAuth();
@@ -98,9 +88,10 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   // the only one looking at a ticket, and your own actions invalidate it.
   const { data: r, isLoading, error: requestError, refetch: refetchRequest } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true, refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" || isBeingSetUp(q.state.data, qc.getQueryData(["flow-run", id])) ? 3000 : false) });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
-  const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });
   const [reassignTo, setReassignTo] = useState("");
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [tab, setTab] = useState<"overview" | "workflow" | "documents" | "risk" | "ai" | "activity" | "comments" | "related">("overview");
 
   const cid = r?.contract_id ?? null;
   // The risk band from the playbook review. Poll while it's unknown (drafting starts
@@ -139,7 +130,29 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const { data: lifeRows } = useQuery({
     queryKey: ["lifecycle-rows", id, cid, flowRun?.id, flowRun?.status, flowRun?.current_index],
     queryFn: () => workflowsApi.lifecycle({ request_id: id }),
+    // While the AI is reading the signed copy (after Retry) keep looking until it settles.
+    refetchInterval: (q) => (aiIsWorking(q.state.data) ? 4000 : false),
   });
+  // Retry / Re-read on the Active stage's obligation row. The server decides who may; this only hides the button.
+  const readObligations = canEditObligations(user?.permissions)
+    ? async (action: { contract_id: string }) => {
+        try {
+          await obligationsApi.extract(action.contract_id);
+        } finally {
+          // Also when the server refuses (it answers 409 when the reading already succeeded): see the contract page.
+          await qc.invalidateQueries({ queryKey: ["lifecycle-rows", id] });
+        }
+      }
+    : undefined;
+  // Activity and counterparty files each have their own load state, so one failing never blanks the page.
+  // The activity key follows the run so a step finishing shows up; keepPreviousData keeps the card from blanking meanwhile.
+  const activityQ = useQuery({
+    queryKey: ["intake-activity", id, flowRun?.status ?? null, flowRun?.current_index ?? null, cid],
+    queryFn: () => intakeApi.activity(id), placeholderData: keepPreviousData,
+  });
+  const counterpartyQ = useQuery({ queryKey: ["intake-counterparty", id], queryFn: () => intakeApi.counterparty(id) });
+  // Own query too: a failing summary shows its Retry inside "What was asked" and never blanks the page.
+  const summaryQ = useQuery({ queryKey: ["intake-summary", id], queryFn: () => intakeApi.requestSummary(id) });
   // Pump a mid-beat "running" step once: hold ~1s so the beat shows, then resume
   // the executor so the agent runs for real and the flow advances (back-and-forth).
   const pumpedRef = useRef<string | null>(null);
@@ -166,17 +179,25 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     return () => clearTimeout(t);
   }, [flowRun, id, qc]);
 
-  // Ask-Aegis chat, scoped to this request's contract when it has one.
-  const [chat, setChat] = useState<{ role: "you" | "ai"; text: string; cites?: number }[]>([]);
-  const [q, setQ] = useState("");
-  const [openSevs, setOpenSevs] = useState<Record<Sev, boolean>>({ critical: true, high: true, medium: false, low: false });
   const commentRef = useRef<HTMLInputElement>(null);
+  // The box lives in the Comments tab, which is inert while hidden: open it first, focus once it has rendered.
+  const jumpToComment = () => { setTab("comments"); setTimeout(() => { commentRef.current?.scrollIntoView?.({ block: "center" }); commentRef.current?.focus(); }, 0); };
   const sendBackRef = useRef<HTMLSelectElement>(null);
+  // Owned here so the decision area's "Send back for rework…" can open the workflow card's form and focus it.
+  const [sendBackOpen, setSendBackOpen] = useState(false);
+  const focusSendBack = useRef(false);
+  useEffect(() => {
+    if (!sendBackOpen || !focusSendBack.current) return;
+    focusSendBack.current = false;
+    sendBackRef.current?.scrollIntoView({ block: "center" });
+    sendBackRef.current?.focus();
+  }, [sendBackOpen]);
 
   // Every write refreshes the request in place + the boards that list it.
   const done = (msg: string) => (updated: IntakeRequest) => {
     qc.setQueryData(["intake-request", id], updated);
-    ["intake-list", "intake-my-work", "intake-mine", "intake-handoffs"].forEach((k) => qc.invalidateQueries({ queryKey: k === "intake-handoffs" ? [k, id] : [k] }));
+    ["intake-list", "intake-my-work", "intake-mine"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    qc.invalidateQueries({ queryKey: ["intake-activity", id] });
     notify(msg, "success");
   };
   const fail = (e: unknown) => notify(e instanceof Error ? e.message : "Action failed", "error");
@@ -184,7 +205,14 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const reassign = useMutation({ mutationFn: (uid: string) => intakeApi.triage(id, { action: "reassigned", assignee_user_id: uid }), onSuccess: (u) => { setReassignTo(""); done("Owner reassigned")(u); }, onError: fail });
   // The AI's urgency is only a suggestion; a person applies it (PATCH audits the change).
   const applyPriority = useMutation({ mutationFn: (p: string) => intakeApi.update(id, { priority: p }), onSuccess: done("Priority updated"), onError: fail });
-  const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
+  // Drafting is never held back for a template that doesn't pass its playbook; the server says so in
+  // `template_notice` and we show it above the page. Keyed by request so it can't follow a person to another one.
+  const [templateNotice, setTemplateNotice] = useState<{ id: string; text: string } | null>(null);
+  const draft = useMutation({
+    mutationFn: () => intakeApi.draftContract(id),
+    onSuccess: (u) => { done("Drafting — review running")(u); setTemplateNotice(u.template_notice ? { id, text: u.template_notice } : null); },
+    onError: fail,
+  });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
   const continueAsTrademark = useMutation({
     mutationFn: () => trademarksApi.continueFromIntake(id, {}),
@@ -201,13 +229,18 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const [reply, setReply] = useState("");
   const owed = flowRun?.rework ?? null;
   const replyMissing = !!owed && !reply.trim();
+  // A note for the decision itself: saved on the step with Approve, never posted to the comment thread.
+  const [decisionNote, setDecisionNote] = useState("");
+  const [stepBlock, setStepBlock] = useState<string | null>(null);
   const completeStep = useMutation({
     // Always say which step: of two steps running side by side, the server must not guess.
     mutationFn: () => (owed
       ? workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx, undefined, reply.trim())
-      : workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx)),
-    onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setReply(""); notify("Step completed", "success"); },
-    onError: fail,
+      : workflowsApi.completeStep(flowRun?.id ?? "", decisionNote.trim() || undefined, current?.idx)),
+    onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setReply(""); setDecisionNote(""); setStepBlock(null); notify("Step completed", "success"); },
+    // A refusal says what to do next, so it stays on the page next to the decision instead of vanishing like a toast.
+    onError: (e) => setStepBlock(e instanceof Error ? e.message : "The step could not be completed."),
+    onMutate: () => setStepBlock(null),
   });
   // The review step stopped because its AI review was interrupted: run the review again and set the step going.
   const retryReview = useMutation({
@@ -224,36 +257,20 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const [backTo, setBackTo] = useState("");
   const [backNote, setBackNote] = useState("");
   const [comment, setComment] = useState("");
-  const returnStep = useMutation({ mutationFn: (p: { to_idx?: number; note?: string }) => workflowsApi.returnStep(flowRun?.id ?? "", p.to_idx, p.note), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setBackTo(""); setBackNote(""); notify("Sent back for rework", "success"); }, onError: fail });
-  const postComment = useMutation({ mutationFn: (text: string) => workflowsApi.comment(flowRun?.id ?? "", text), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setComment(""); }, onError: fail });
+  const returnStep = useMutation({ mutationFn: (p: { to_idx?: number; note?: string }) => workflowsApi.returnStep(flowRun?.id ?? "", p.to_idx, p.note), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); qc.invalidateQueries({ queryKey: ["intake-activity", id] }); setBackTo(""); setBackNote(""); notify("Sent back for rework", "success"); }, onError: fail });
+  const postComment = useMutation({ mutationFn: (text: string) => workflowsApi.comment(flowRun?.id ?? "", text), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); qc.invalidateQueries({ queryKey: ["intake-activity", id] }); setComment(""); }, onError: fail });
   const rerunRisk = useMutation({ mutationFn: () => contractsApi.computeRisk(cid ?? ""), onSuccess: (rs) => { qc.setQueryData(["contract-risk", cid], rs); qc.invalidateQueries({ queryKey: ["contract-devs", cid] }); notify("Risk recomputed from the playbook review", "success"); }, onError: fail });
-  const ask = useMutation({
-    mutationFn: (question: string) => brainApi.ask({ question, query_scope: r?.contract_id ? "contract" : "portfolio", contract_id: r?.contract_id ?? undefined }),
-    onSuccess: (res) => setChat((c) => [...c, { role: "ai", text: res.answer, cites: res.citations?.length ?? 0 }]),
-    onError: (e) => setChat((c) => [...c, { role: "ai", text: e instanceof Error ? e.message : "Couldn't answer that." }]),
-  });
   const busy = reassign.isPending || draft.isPending || ingest.isPending || continueAsTrademark.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending || retryReview.isPending;
-  function sendChat() {
-    const text = q.trim();
-    if (!text || ask.isPending) return;
-    setChat((c) => [...c, { role: "you", text }]);
-    setQ("");
-    ask.mutate(text);
-  }
-
   const steps = r?.workflow ?? [];
   // A request that could not be opened (removed, wrong link, no access) says so; it used to sit on "Loading request…" for ever.
   if (!r && requestError) return <div className="ro"><div style={{ padding: 24 }}><LoadError error={requestError} what="this request" onRetry={() => void refetchRequest()} onBack={onBack} backLabel="← Back to Legal Intake" /></div></div>;
   if (isLoading || !r) return <div className="ro"><div style={{ padding: 40, color: "var(--ink-3)" }}>Loading request…</div></div>;
 
+
   const cp = counterpartyOf(r);
   const ai = (r.ai_triage ?? {}) as { confidence?: number; complexity?: string; source?: string };
   // A form request is decided by its form; the model only leaves this note for the owner.
   const read = (r.ai_triage as { read?: { summary?: string; mismatches?: string[]; bespoke_asks?: string[]; negotiation_points?: string[] } | null } | null)?.read;
-  const readRows = read
-    ? ([["Doesn’t match the form", read.mismatches], ["Beyond the template", read.bespoke_asks], ["Likely negotiated", read.negotiation_points]] as const)
-        .filter(([, xs]) => xs && xs.length)
-    : [];
   const fs = (r.ai_triage as { flow_suggestion?: WorkflowSuggestion } | null)?.flow_suggestion;
   // The model's urgency, offered as a suggestion. Only when the model produced it (form
   // triage copies the requester's priority, which would come back as a fake "AI" hint after
@@ -279,104 +296,109 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   // The step to show and act on. Steps flagged "parallel" run side by side and `current_index` stays on the
   // first of them, so once that one is done the step still waiting is another one.
   const current: WorkflowRunStep | undefined = hasRun ? stepInFocus(flowRun, user?.id) : undefined;
+  const stepTeam = current?.team_id ? (teams ?? []).find((t) => t.id === current.team_id) : undefined;
   const openIdx = new Set(hasRun ? openSteps(flowRun).map((s) => s.idx) : []);
-  const wf: WfStep[] = hasRun
-    ? (flowRun!.steps ?? []).map((s, i) => {
+  // The shared stage bar and the Next-step card read step names as saved ("Clm Draft"); hand them plain ones.
+  const plainRun: WorkflowRun | null = flowRun ? { ...flowRun, steps: (flowRun.steps ?? []).map((s) => ({ ...s, name: plainStepName(s.name, s.type) })) } : null;
+  // Which approval this is: the open approval step's plain name, and what it is about (type · counterparty).
+  const openApproval = hasRun ? openSteps(flowRun).find((s) => s.type === "approval") : undefined;
+  const approvalStepName = openApproval ? plainStepName(openApproval.name, openApproval.type) : undefined;
+  const agreementType = (r.field_values as Record<string, unknown> | null)?.agreement_type;
+  const approvalSubject = [(typeof agreementType === "string" && agreementType) || r.type_label, cp].filter(Boolean).join(" · ") || undefined;
+  const runSteps = hasRun ? flowRun!.steps ?? [] : [];
+  // Who an open tile waits on, the authority note or team members, and when it is due.
+  const waitOf = (s: WorkflowRunStep): NonNullable<StepRow["wait"]> => {
+    const f = stepFacts(s, teams);
+    return {
+      who: f.who, extra: f.authorityNote ?? (f.members.length ? f.members.join(", ") : null),
+      due: f.overdue ? overdueWords(f.due ?? new Date()) : f.due ? `Due ${fmtDateTime(f.due.toISOString())}` : null,
+      overdue: f.overdue,
+    };
+  };
+  // How the draft came about, said once for the drafting row and for the stage tracker.
+  const paperChoice = (r.field_values as Record<string, unknown> | null)?.paper;
+  const draftHow = paperChoice === "Our template" ? "Drafted from our template"
+    : (docs ?? []).length > 0 || paperChoice === "Their paper" ? `Uploaded document provided${(docs ?? [])[0] ? `: ${(docs ?? [])[0].filename}` : ""}` : null;
+  const baseRows: StepRow[] = hasRun
+    ? runSteps.map((s, i) => {
         // A step the engine skipped (its condition was not met) was never done: it shows as skipped and is
         // not counted as work that happened, but it does not hold the workflow up either.
-        const isSkipped = s.status === "skipped";
-        const isDone = isSkipped || ["done", "complete"].includes(s.status);
+        // The drafting step is skipped when the contract already exists. For the requester that is not a skip: either
+        // we drafted it from our own template, or the document they uploaded is the draft. Say which.
+        // A skip with a reason of its own (a Processor DPA: no draft will be made) is a real skip and stays one.
+        const draftProvided = s.type === "clm_draft" && s.status === "skipped" && !(s.result as { skipped?: string } | null)?.skipped;
+        const draftNote = s.type !== "clm_draft" ? null : draftHow ?? (draftProvided ? "The contract was already in place" : null);
+        const isSkipped = s.status === "skipped" && !draftProvided;
+        const isDone = isSkipped || draftProvided || ["done", "complete"].includes(s.status);
         const isCur = (openIdx.has(s.idx) || i === curIdx) && !isDone && !runComplete;
         const failedHere = runFailed && i === curIdx;
         const meta = stepMeta(s.type);
+        const doc = flowRun?.contract_id ?? cid;
+        const doorLabel = STEP_DOORWAY[s.type as keyof typeof STEP_DOORWAY];
         return {
-          label: s.name,
+          label: plainStepName(s.name, s.type),
           tone: isDone ? "done" : failedHere ? "warn" : isCur ? "cur" : "todo",
           node: isSkipped ? "–" : isDone ? "✓" : failedHere ? "!" : String(i + 1),
-          badge: isSkipped ? "skipped" : isDone ? "done" : isCur ? (failedHere ? "failed" : s.status === "running" ? meta.running : isWaiting(s) ? waitLabel(s, user?.id) : "here now") : undefined,
+          badge: isSkipped ? "skipped" : isDone ? "done" : isCur ? (failedHere ? (flowRun?.status === "cancelled" ? "cancelled" : "failed") : s.status === "running" ? meta.running : isWaiting(s) ? waitLabel(s, user?.id) : "here now") : undefined,
           badgeTone: isSkipped ? "skip" : isDone ? "done" : failedHere ? "warn" : "cur",
           skipped: isSkipped,
-          sub: meta.label,
           sidx: i,
+          stage: stepStage(s),
+          kind: meta.label, team: s.team_label ?? s.planned_team_label ?? undefined,
+          sla: s.sla_hours ? `${s.sla_hours}h to complete` : undefined, updated: isDone || isCur ? s.updated_at : null,
+          note: draftNote ?? s.note, parallel: !!s.parallel, conditional: !!s.cond,
           assign: assignOf(s),
-          result: s.result,
-        } as WfStep;
+          wait: isCur && !failedHere ? waitOf(s) : undefined,
+          focus: s.idx === current?.idx,
+          detail: readableResult(s.result),
+          doorway: canAct && i === current?.idx && current?.status === "waiting_human" && doc && doorLabel ? { href: `/contracts/${doc}`, label: doorLabel } : undefined,
+          notice: interruptedStep?.idx === i ? <StepReviewNotice auto={contractStatus?.auto_review} canAct={canAct} busy={busy} onRetry={() => retryReview.mutate()} /> : undefined,
+        } satisfies StepRow;
       })
     // No run started yet — preview the auto-chosen workflow's own steps
     // (all "todo") rather than the generic per-request-type stage ladder,
     // so the ticket shows what will actually run once Start is clicked.
     : fs?.steps?.length
-    ? fs.steps.map((label, i) => ({ label, tone: "todo", node: String(i + 1), badgeTone: "cur" } as WfStep))
-    : steps.map((s, i) => ({
+    ? fs.steps.map((label, i): StepRow => ({ label: plainStepName(label), tone: "todo", node: String(i + 1), badgeTone: "cur", detail: [] }))
+    : steps.map((s, i): StepRow => ({
         label: s.label,
         tone: s.done ? "done" : s.active ? (stuck ? "warn" : "cur") : "todo",
         node: s.done ? "✓" : s.active && stuck ? "!" : String(i + 1),
         badge: s.done ? "done" : s.active ? (stuck ? "overdue" : "here now") : undefined,
         badgeTone: s.done ? "done" : stuck ? "warn" : "cur",
-      } as WfStep));
-  const wfSkipped = wf.filter((w) => w.skipped).length;
+        detail: [],
+      }));
+  // "Next" sits on the first upcoming tile after the last open one.
+  const lastOpen = baseRows.reduce((m, w, i) => (w.tone === "cur" || w.tone === "warn" ? i : m), -1);
+  const nextIdx = hasRun && lastOpen >= 0 ? baseRows.findIndex((w, i) => i > lastOpen && w.tone === "todo") : -1;
+  const wf: StepRow[] = baseRows.map((w, i) => (i === nextIdx ? { ...w, next: true } : w));
+  // A skipped step whose condition was not met does not apply to this request: it is out of the count (and out of sight).
+  const wfSkipped = wf.filter((w) => w.skipped && !w.conditional).length;
+  const wfNotApplicable = wf.filter((w) => w.skipped && w.conditional).length;
   const wfDone = wf.filter((w) => w.tone === "done" && !w.skipped).length;
   const wfActiveIdx = wf.findIndex((w) => w.tone === "cur" || w.tone === "warn");
-  const activeLabel = hasRun ? (runComplete ? "Workflow complete" : current?.name ?? "In progress") : (wf[wfActiveIdx]?.label ?? beforeWorkflow(r).title);
-  const flowTitle = hasRun ? flowRun!.flow_name : fs?.flow_name;
   const stageNow = currentStage({ run: hasRun ? flowRun : null, contractStage: contractStatus?.lifecycle_stage, requestClosed: !open });
-  const stageLabel = LIFECYCLE.find((x) => x.key === stageNow)?.label;
+  const stageLabel = LIFECYCLE.find((x) => x.key === stageNow)?.label ?? r.stage;
 
-  // The single primary action, engine-aware: run a human step, poll an
-  // approval/signature, or start the workflow when none is running yet.
-  type Act = { label: string; onClick: () => void; icon: string; blocked?: boolean };
-  let engineAction: Act | null = null;
-  if (canAct) {
-    if (hasRun && !runComplete && current) {
-      // A step waiting on a person is finished from "Your decision" (it shows the risk and takes the reply
-      // owed to a rejection). A third "Complete this step" up here, and another on the step, made one action
-      // look like three (round 2, bug 44).
-      if (current.type === "approval" || current.type === "signature") engineAction = { label: `Check ${current.type} status`, onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
-      // ai_task has no owner to click "complete" — once the 45s auto-poll cap
-      // above gives up, this is the only way left to nudge it forward.
-      else if (current.type === "ai_task" && current.status === "running") engineAction = { label: "Check AI review status", onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
-    } else if (!hasRun && fs?.flow_id) {
-      engineAction = { label: "Start workflow", onClick: () => startFlow.mutate(fs.flow_id ?? undefined), icon: '<path d="M5 3l14 9-14 9z"/>' };
-    }
-  }
-  // --- Risk review: the band, and the playbook findings behind it -----------
-  // needs_review is a finding a person still has to check: as open as "open".
-  const openDevs = (deviations ?? []).filter((d) => ["open", "needs_review"].includes(d.status || "open"));
-  const bySev: Record<Sev, ContractDeviation[]> = { critical: [], high: [], medium: [], low: [] };
-  openDevs.forEach((d) => bySev[sevOf(d.severity)].push(d));
-  // Accepted/waived issues keep their wording, so they still count toward the band.
-  const conceded: RiskDriver[] = (risk?.drivers ?? []).filter((d) => d.conceded);
-  const band = riskBand(risk);
-  // Unknown is "nobody has a judgement on this text", never a level — and never "clear".
-  const unknownRisk = !!cid && band === "unknown";
-  const bandTone = band === "high" ? "crit" : band === "medium" ? "warn" : band === "low" ? "good" : "ink-3";
-  // Counted from the band's own findings (risk.counts: this text's review, concessions
-  // included). /deviations now lists the same review's undecided findings (the server's
-  // current_open_findings), so the header and the list under it agree; they used to disagree
-  // because /deviations held every review's open rows, and the card could call a contract
-  // "clean" while its band was high.
-  const rc = risk?.counts ?? { critical: 0, high: 0, medium: 0, low: 0 };
-  const critCount = rc.critical ?? 0;
-  const gateCount = critCount + (rc.high ?? 0);
-  // Critical folds into "high" so the 3-bucket chip sums to findingCount.
-  const findHigh = gateCount;
-  const findMedium = rc.medium ?? 0;
-  const findLow = rc.low ?? 0;
-  const findingCount = findHigh + findMedium + findLow;
-  // The band counts every finding of this text's review, decided ones too (an accepted or waived finding
-  // keeps its wording, so it still counts). The list holds only the undecided ones. Saying both numbers
-  // keeps "3 findings" next to an empty list from reading as a contradiction.
-  const decidedCount = deviations ? Math.max(0, findingCount - openDevs.length) : 0;
+  // --- Risk review: one set of numbers for the header pill, the decision warning and the review card ---
+  const rf = riskFacts(risk, deviations, !!cid);
 
   // Approve the current human step, warning when critical risks are open or nobody reviewed the text.
-  function approveStep() {
+  async function approveStep() {
     if (replyMissing) return;
-    const warning = unknownRisk ? "The risk on this contract's text has not been reviewed."
-      : critCount > 0 ? `${critCount} critical-severity risk${critCount === 1 ? "" : "s"} still open on this contract.` : null;
-    if (warning && !window.confirm(`${warning}\n\nApprove and advance anyway?`)) return;
+    const warning = rf.unknown ? "The risk on this contract's text has not been reviewed."
+      : rf.critCount > 0 ? `${rf.critCount} critical-severity risk${rf.critCount === 1 ? "" : "s"} still open on this contract.` : null;
+    // The app's own dialog, not the browser's: a native alert reads as an error and can be switched off.
+    if (warning && !(await confirm({ title: "Approve without a full review?", message: `${warning} Approve and advance anyway?`, confirmLabel: "Approve anyway" }))) return;
     completeStep.mutate();
   }
-  const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human";
+  // A draft that can't be made yet: a Statement of Work without its deliverable rows, a Consultancy or DPA without
+  // the answers its template needs, or a DPA that came by email with no form to take them from (`result.held` says
+  // which). The step carries on by itself once the answers are saved, so there is nothing for a person to approve
+  // (the server refuses a manual complete with 409) and the reason is shown with the answers instead.
+  const held = current?.type === "clm_draft" && current.status === "waiting_human"
+    && !!(current.result as { held?: string } | null)?.held;
+  const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human" && !held;
 
   const fv = (r.field_values ?? {}) as Record<string, unknown>;
   // Form numbers arrive typed (validated server-side) with the currency picked beside them.
@@ -387,546 +409,301 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     : (rawValue as string | undefined);
 
   const termText = termFact(fv);
-  const facts: [string, string][] = [
-    ["Counterparty", cp ?? "—"],
-    ["Type", (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label],
-    ...(value ? [["Value", value] as [string, string]] : []),
-    ...(termText ? [["Term", termText] as [string, string]] : []),
-    ["Priority", r.priority],
+  const facts: { label: string; value: string }[] = [
+    { label: "Counterparty", value: cp ?? "—" },
+    { label: "Type", value: (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label },
+    ...(value ? [{ label: "Value", value }] : []),
+    ...(termText ? [{ label: "Term", value: termText }] : []),
   ];
+
+  // --- the Overview tab: a labelled sheet, the dates that matter ---
+  const filedAt = r.created_at ?? r.submitted_at ?? null;
+  const slaDue = filedAt && r.sla_hours > 0 ? new Date(new Date(filedAt).getTime() + r.sla_hours * 3_600_000) : null;
+  const slaLeftH = slaDue ? Math.round((slaDue.getTime() - Date.now()) / 3_600_000) : null;
+  const slaLeft = slaLeftH == null ? null : `${Math.abs(slaLeftH) < 48 ? `${Math.abs(slaLeftH)} hours` : `${Math.round(Math.abs(slaLeftH) / 24)} days`} ${slaLeftH < 0 ? "overdue" : "left"}`;
+  const fmtD = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "—");
+  const detailRows: { label: string; value: string }[] = [
+    { label: "Request title", value: r.subject || r.type_label },
+    { label: "Request ID", value: r.ref },
+    ...facts.map((f) => (f.label === "Type" ? { label: "Request type", value: f.value } : f)),
+    { label: "Priority", value: r.priority },
+    ...(r.department ? [{ label: "Requesting department", value: r.department }] : []),
+    { label: "Requested by", value: r.requester_name ?? "—" },
+    ...(r.filed_by_agent ? [{ label: "Filed by", value: `Agent · ${r.filed_by_agent_name ?? "unknown"}` }] : []),
+    { label: "Owner", value: r.assigned_to_label ?? "Unassigned" },
+    ...(r.description?.trim() ? [{ label: "Description", value: r.description.trim() }] : []),
+  ];
+  const nextStep = wf.find((w) => w.tone === "cur" || w.tone === "warn");
+  const keyDates: KeyDate[] = [
+    { label: "Request created", value: fmtD(filedAt), tone: "done" },
+    ...(nextStep?.wait?.due ? [{ label: `${nextStep.label} due`, value: String(nextStep.wait.due), tone: (nextStep.wait.overdue ? "late" : "warn") as KeyDate["tone"] }] : []),
+    ...(slaDue ? [{ label: "Response due", value: `${fmtD(slaDue)} · ${slaLeft}`, tone: (slaLeftH! < 0 ? "late" : "todo") as KeyDate["tone"] }] : []),
+  ];
+
+  // --- the status line under the stage bar ---
+  const waitingNow = !!current && isWaiting(current);
+  const overdueNow = !!current?.approval?.overdue;
+  let line: string;
+  if (settingUp) line = "Workflow being set up";
+  else if (!hasRun) line = `${fs?.flow_name ? "Not started" : "No workflow yet"} · ${beforeWorkflow(r).note}`;
+  else if (runComplete) line = "Workflow complete";
+  else if (runFailed) line = `Workflow ${flowRun!.status}`;
+  else {
+    const names = openSteps(flowRun).map((s) => plainStepName(s.name, s.type)).join(" + ") || (current ? plainStepName(current.name, current.type) : "In progress");
+    line = `${stageLabel} · ${names}${wfActiveIdx >= 0 ? ` · step ${wfActiveIdx + 1} of ${wf.length}` : ""}`
+      + (current && waitingNow ? ` · ${waitLabel(current, user?.id)}` : current?.status === "running" ? ` · ${stepMeta(current.type).running}` : "")
+      + (overdueNow ? " · overdue" : "");
+  }
+  const working = hasRun && !runComplete && !!current && (current.status === "running" || (current.status === "waiting_job" && current.type !== "approval" && current.type !== "signature"));
+  // Approval/signature steps sit in waiting_job while they wait on PEOPLE, so they are not an agent at work.
+
+  // --- decision area ---
+  // The same rule ApprovalCard uses to pick its rung (_approval-card.tsx): if they drift, the area would hold a
+  // card that renders nothing, or hide an approval that is pending.
+  const pendingApproval = (approvals ?? []).some((a) => a.can_decide || (a.status === "pending" && !!a.approval_request_id));
+  const negotiateCid = hasRun && !runComplete && current?.type === "counterparty" ? (flowRun?.contract_id ?? cid) : null;
+  const negotiation = negotiateCid ? <NegotiationPanel contractId={negotiateCid} canAct={canAct} busy={busy} onConverged={() => completeStep.mutate()} /> : null;
+  // Waiting at the signature step: whoever can act sends the approved version out from here.
+  const signCid = hasRun && !runComplete && current?.type === "signature" ? (flowRun?.contract_id ?? cid) : null;
+  const signature = signCid && canAct ? <SignatureCard contractId={signCid} rows={lifeRows?.signature ?? []} stepName={plainStepName(current!.name, current!.type)} /> : null;
+  const human: HumanDecision | null = atReviewGate && current ? {
+    stepName: plainStepName(current.name, current.type),
+    warning: rf.unknown ? { tone: "warn", text: `${RISK_UNKNOWN_LABEL}${risk?.note ? ` — ${risk.note}` : ""}` }
+      : rf.gateCount > 0 ? { tone: "warn", text: `${rf.critCount > 0 ? `${rf.critCount} critical + ` : ""}${rf.gateCount - rf.critCount} high risk${rf.gateCount === 1 ? "" : "s"} open — review before approving` }
+      : rf.band === "high" ? { tone: "warn", text: "Overall risk is high — accepted issues still count" }
+      : { tone: "ok", text: "No blocking risks — clear to advance" },
+    rework: owed ? { reason: owed.reason } : null,
+    reply, onReply: setReply, replyMissing, busy, onApprove: approveStep,
+    sendBack: curIdx > 0 ? {
+      options: wf.slice(0, curIdx).map((w) => ({ value: String(w.sidx), label: `${(w.sidx ?? 0) + 1}. ${w.label}` })),
+      to: backTo, onTo: setBackTo, note: backNote, onNote: setBackNote,
+      open: sendBackOpen,
+      // The form lives in the Workflow tab: go there, open it, and put the cursor in the step picker once it is on screen.
+      onToggle: () => { setTab("workflow"); focusSendBack.current = true; setSendBackOpen(true); setTimeout(() => { sendBackRef.current?.scrollIntoView?.({ block: "center" }); sendBackRef.current?.focus(); }, 0); },
+      onSend: () => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined }),
+    } : null,
+    reassign: canAct ? {
+      teamName: stepTeam?.name ?? current.team_label ?? "this team",
+      // The step's own team (Legal Counsel for a legal review); the wider owner list only when the team is unknown.
+      options: (stepTeam ? stepTeam.members.filter((m) => m.active && m.user_id !== r.assigned_to_user_id).map((m) => ({ id: m.user_id, name: m.name ?? "Team member", detail: m.open_count != null ? `${m.open_count} open` : undefined }))
+        : (assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => ({ id: a.id, name: a.name }))),
+      open: reassignOpen, onToggle: () => setReassignOpen((o) => !o), picked: reassignTo, onPick: setReassignTo,
+      onConfirm: () => { reassign.mutate(reassignTo); setReassignOpen(false); },
+    } : undefined,
+    note: decisionNote, onNote: setDecisionNote,
+    risks: [...rf.bySev.critical, ...rf.bySev.high].map((d) => ({ id: d.id, severity: d.severity.toLowerCase() === "critical" ? "critical" : "high", clause: d.clause_type.replace(/_/g, " "), issue: d.issue })),
+    onSeeRisks: () => { setTab("risk"); setTimeout(() => document.getElementById("rt-risk")?.scrollIntoView?.({ block: "start", behavior: "smooth" }), 0); },
+  } : null;
+
+  // --- steps card extras: the approval chain sits on the approval step; negotiation rounds on the negotiate step for those who cannot act ---
+  const extras: ExtraDetail[] = [];
+  if (negotiation && !canAct && current) extras.push({ id: "negotiation", label: "Negotiation rounds", node: negotiation });
+
+  const flow: FlowState = hasRun ? { kind: "running", name: flowRun!.flow_name, status: flowRun!.status }
+    : fs?.flow_name ? { kind: "suggested", name: fs.flow_name, reasoning: fs.reasoning ?? "", canStart: canAct, starting: busy, onStart: () => startFlow.mutate(fs.flow_id ?? undefined) }
+    : settingUp ? { kind: "setting_up" }
+    : { kind: "none", reasoning: fs?.reasoning ?? null, canPick: canAct, flows: (allFlows ?? []).filter((f) => f.enabled).map((f) => ({ id: f.id, name: f.name })), picking: startFlow.isPending, onPick: (flowId) => startFlow.mutate(flowId) };
+
+  // The one status button: poll an approval/signature, or nudge an AI step once the auto-poll cap above gave up.
+  // A step waiting on a person is finished from "Your decision", never from a second button here.
+  const checkLabel = canAct && hasRun && !runComplete && current
+    ? (current.type === "approval" || current.type === "signature" ? `Check ${current.type} status`
+      : current.type === "ai_task" && current.status === "running" ? "Check AI review status" : null)
+    : null;
+
+  const activityStatus = activityQ.data ? "ready" : activityQ.isError ? "error" : "loading";
+  const counterpartyStatus = counterpartyQ.data ? "ready" : counterpartyQ.isError ? "error" : "loading";
+  const openRequest = (rid: string) => { onOpenRequest?.(rid); window.scrollTo({ top: 0 }); };
 
   return (
     <div className="ro">
-      <style dangerouslySetInnerHTML={{ __html: RO_CSS + REVIEW_NOTICE_CSS }} />
+      {confirmDialog}
+      <style dangerouslySetInnerHTML={{ __html: RO_CSS + HEADER_CSS + DECISION_CSS + ASKED_CSS + RISK_CSS + STEPS_CSS + CARDS_CSS + REVIEW_NOTICE_CSS + SUMMARY_CSS + OVERVIEW_PANE_CSS + POLISH_CSS + TIMELINE_CSS }} />
 
-      {/* header */}
-      <div className="rohd">
-        <div className="crumb"><a onClick={onBack} style={{ cursor: "pointer", color: "var(--accent)" }}>← Legal Intake</a><span>/</span><span>{r.ref}</span></div>
-        <div className="hrow">
-          <h1>{r.subject || `${r.type_label}${cp ? ` — ${cp}` : ""}`}</h1><span className="ref">{r.ref}</span>
-          <div className="badges">
-            <span className="bdg type">{r.type_label}</span>
-            {value ? <span className="bdg val">{value}</span> : null}
-            <span className="bdg phase" title="Stage of the contract, and workflow steps finished">{stageLabel}{wf.length ? ` · ${wfDone} of ${wf.length - wfSkipped} steps done${wfSkipped ? `, ${wfSkipped} skipped` : ""}` : ""}</span>
-            {cid && risk ? <span className={`bdg ${band === "low" ? "val" : "warn"}`}>⚑ {band === "unknown" ? "risk not reviewed" : `${band} risk`}</span> : null}
-            {stuck ? <span className="bdg warn">⚠ overdue</span> : null}
-          </div>
-          <div style={{ flex: 1 }} />
-          {r.contract_id ? <Link href={`/contracts/${r.contract_id}`} className="btn">{svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')}Open CLM editor →</Link> : null}
-          {engineAction ? (
-            <button className="btn pri" disabled={busy || engineAction.blocked} title={engineAction.blocked ? "Reply to the rejection first" : undefined} onClick={engineAction.onClick}>{svg(engineAction.icon)}{busy ? "Working…" : engineAction.label}</button>
-          ) : hasRun && !runComplete && current && (current.status === "running" || current.status === "waiting_job") ? (
-            <span className="btn spin" aria-live="polite">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}Agent working…</span>
-          ) : null}
-        </div>
-        {/* pinned tracker — where this sits in the 7-stage lifecycle; a stage opens its steps */}
-        <div className="flowstrip">
-          <div className={`youare${stuck || runFailed ? " blocked" : ""}`}>
-            <div className="ya-ic">{svg(stuck || runFailed ? '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' : '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</div>
-            <div><div className="k">{runComplete ? "Done" : `You are here · ${stageLabel}`}</div>
-              <div className="v">{activeLabel}{!runComplete && wfActiveIdx >= 0 ? ` · step ${wfActiveIdx + 1} of ${wf.length}` : ""}</div>
-              <div className="m">{hasRun ? (current && isWaiting(current) ? waitLabel(current, user?.id) : flowTitle ?? "in progress") : beforeWorkflow(r).note}{stuck ? " · overdue" : ""}</div></div>
-          </div>
-          <div className="lcwrap"><LifecycleView compact steps={hasRun ? flowRun!.steps ?? [] : []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} /></div>
+      {templateNotice?.id === id ? <MessageBar intent="warning" className="mb-3">{templateNotice.text}</MessageBar> : null}
+
+      <RequestHeader title={r.subject || `${r.type_label}${cp ? ` — ${cp}` : ""}`} refCode={r.ref} requesterName={r.requester_name ?? null}
+        raisedAt={r.created_at ?? r.submitted_at ?? null} ownerLabel={r.assigned_to_label ?? null}
+        highRisk={!!cid && !!risk && rf.band === "high"} sla={r.sla_status ?? null} onBack={onBack} statusLabel={runComplete ? "Complete" : hasRun ? "In progress" : r.status === "open" ? "Open" : String(r.status)} chips={[cp, typeof fv.agreement_type === "string" ? fv.agreement_type : "", r.type_label.split(" · ")[0], current ? plainStepName(current.name, current.type) : stageLabel].filter((x): x is string => !!x)} icon={(() => { const K = kindOf(r).Icon; return <K />; })()}
+        actions={(
+          <>
+            {hasRun && canAct ? <button type="button" className="btn act-ind" onClick={jumpToComment}><MessageSquarePlus className="ic" aria-hidden />Add comment</button> : null}
+            {canAct ? <button type="button" className="btn act-vio" onClick={() => { const el = document.querySelector<HTMLSelectElement>('.ro select[aria-label="New owner"]'); el?.scrollIntoView({ block: "center" }); el?.focus(); }}><UserCog className="ic" aria-hidden />Reassign</button> : null}
+            <button type="button" className="btn act-sky" onClick={() => window.dispatchEvent(new CustomEvent("aegis:ask", { detail: { contractId: r?.contract_id } }))}><Sparkles className="ic" aria-hidden />Ask Aegis</button>
+            {cid ? <Link href={`/contracts/${cid}`} className="btn act-emr"><FileIcon className="ic" aria-hidden />Open contract</Link> : null}
+          </>
+        )} />
+      <KpiStrip items={buildKpis({
+        priority: r.priority, sla: r.sla_status ?? null, slaPct: typeof r.sla_pct === "number" ? r.sla_pct : null,
+        risk: cid && risk ? { band: rf.band, unknown: rf.unknown, critical: rf.critCount, findings: rf.findingCount } : null,
+        typeLabel: (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label, value: value ?? null,
+        dueDate: slaDue ? fmtD(slaDue) : null, dueNote: slaLeft, dueLate: slaLeftH != null && slaLeftH < 0,
+      })} />
+
+      <ProgressStrip line={line} tone={overdueNow ? "warn" : "info"} working={working} />
+
+      <div className="rtabswrap">
+        <div className="rtabs" role="tablist" aria-label="Request sections">
+          <button type="button" role="tab" id="rt-overview" aria-selected={tab === "overview"} aria-controls="rp-overview" onClick={() => setTab("overview")}><LayoutDashboard className="ic" aria-hidden />Overview</button>
+          <button type="button" role="tab" id="rt-workflow" aria-selected={tab === "workflow"} aria-controls="rp-workflow" onClick={() => setTab("workflow")}><ListChecks className="ic" aria-hidden />Workflow</button>
+          <button type="button" role="tab" id="rt-documents" aria-selected={tab === "documents"} aria-controls="rp-documents" onClick={() => setTab("documents")}><FileText className="ic" aria-hidden />Documents {(docs ?? []).length ? <i>{(docs ?? []).length}</i> : null}</button>
+          <button type="button" role="tab" id="rt-risk" aria-selected={tab === "risk"} aria-controls="rp-risk" onClick={() => setTab("risk")}><ShieldAlert className="ic" aria-hidden />Risk & compliance</button>
+          <button type="button" role="tab" id="rt-ai" aria-selected={tab === "ai"} aria-controls="rp-ai" onClick={() => setTab("ai")}><Sparkles className="ic" aria-hidden />AI analysis</button>
+          <button type="button" role="tab" id="rt-activity" aria-selected={tab === "activity"} aria-controls="rp-activity" onClick={() => setTab("activity")}><Activity className="ic" aria-hidden />Activity</button>
+          <button type="button" role="tab" id="rt-comments" aria-selected={tab === "comments"} aria-controls="rp-comments" onClick={() => setTab("comments")}><MessagesSquare className="ic" aria-hidden />Comments {(flowRun?.comments ?? []).length ? <i>{(flowRun?.comments ?? []).length}</i> : null}</button>
+          <button type="button" role="tab" id="rt-related" aria-selected={tab === "related"} aria-controls="rp-related" onClick={() => setTab("related")}><Link2 className="ic" aria-hidden />Related</button>
         </div>
       </div>
 
-      {/* body */}
       <div className="body">
+        <StageTimeline draftNote={draftHow} steps={plainRun?.steps ?? []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} onAction={readObligations} />
         <div className="col">
-          <div className="card"><div className="ch"><div className="glyph">{svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>')}</div><h2>The request</h2></div>
-            <div className="cb">
-              <div className="quote"><span style={{ whiteSpace: "pre-line" }}>{r.description || "No description provided."}</span><br /><span className="dim" style={{ fontSize: 11.5 }}>— {r.source ?? "submitted"} by {r.requester_name ?? "requester"}</span></div>
-              {missingInfo.length > 0 ? (
-                <div className="needsinfo">
-                  {svg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>')}
-                  <div>
-                    <b>Needs info before drafting</b>
-                    <div className="ni-items">{missingInfo.map((m, i) => <span key={i} className="ni-chip">{m}</span>)}</div>
-                    <div className="ni-hint">Auto-drafting is held until these are provided — add them to the request or proceed manually.</div>
-                  </div>
-                </div>
-              ) : null}
-              {triageDegraded.degraded ? (
-                <div className="needsinfo" style={{ borderColor: "var(--warn)" }}>
-                  {svg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>')}
-                  <div>
-                    <b>AI triage unavailable — review the routing</b>
-                    <div className="ni-hint">{triageDegraded.degraded_reason || "This request was auto-classified by keyword rules, not a model reading. Confirm the category and routing before it advances."}</div>
-                  </div>
-                </div>
-              ) : null}
-              <div className="lbl" style={{ margin: "16px 0 0", fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)" }}>{ai.source === "form" ? "From the form" : "What the AI understood"}</div>
-              <div className="facts">{facts.map(([k, v]) => <div key={k} className="f"><div className="k">{k}</div><div className="v">{v}</div></div>)}</div>
-              {read ? (
-                <>
-                  <div className="lbl" style={{ margin: "16px 0 0", fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)" }}>Aegis read</div>
-                  {read.summary ? <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-2)", margin: "6px 0 0" }}>{read.summary}</div> : null}
-                  {readRows.length ? (
-                    <div className="facts">{readRows.map(([k, xs]) => (
-                      <div key={k} className="f">
-                        <div className="k" style={k === "Doesn’t match the form" ? { color: "var(--warn)" } : undefined}>{k}</div>
-                        <div className="v"><ul style={{ margin: 0, paddingLeft: 16, listStyle: "disc", fontWeight: 400, fontSize: 12.5, lineHeight: 1.5, display: "grid", gap: 4 }}>{(xs ?? []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-                      </div>
-                    ))}</div>
-                  ) : null}
-                </>
-              ) : null}
-              {ai.confidence != null && ai.source !== "form" && (
-                <div className="confline"><span>AI extraction confidence</span><div className="track"><div className="fill" style={{ width: `${Math.round(Number(ai.confidence) * 100)}%`, background: Number(ai.confidence) >= 0.8 ? "var(--good)" : "var(--warn)" }} /></div><b>{Math.round(Number(ai.confidence) * 100)}%</b>{ai.complexity ? <span className="dim"> · {ai.complexity} complexity</span> : null}</div>
-              )}
-            </div></div>
-
-          {/* AI Risk Review — the analysis the page used to hide */}
-          {cid && (
-            <div className="card"><div className="ch"><div className="glyph warn">{svg('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9.5 12l2 2 3-4"/>')}</div><h2>AI Risk Review</h2>
-              {canManage ? <button className="ministep" style={{ marginLeft: "auto", background: "var(--surface)", color: "var(--ink-2)", borderColor: "var(--border-strong)" }} disabled={rerunRisk.isPending} onClick={() => rerunRisk.mutate()}>{svg('<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>')}Recompute</button> : null}</div>
-              <div className="cb">
-                {!risk ? (
-                  <div className="analyzing">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}<span>Loading the risk review…</span></div>
-                ) : unknownRisk ? (
-                  <div className="dim" style={{ fontSize: 12.5 }}><b>{RISK_UNKNOWN_LABEL}.</b> {risk.note ?? "No playbook review of this text yet."}</div>
-                ) : (
-                  <>
-                    <div className="risktop">
-                      <div className="rgauge" style={{ background: bandTone === "crit" ? "var(--crit)" : bandTone === "warn" ? "var(--warn)" : bandTone === "good" ? "var(--good)" : "var(--ink-3)" }}>{band.charAt(0).toUpperCase()}</div>
-                      <div className="rmeta"><div className="rb" style={{ textTransform: "capitalize" }}>{band} risk</div><div className="rc">{findingCount} finding{findingCount === 1 ? " counts" : "s count"} toward this · {findHigh} high · {findMedium} medium · {findLow} low{deviations ? ` · ${openDevs.length} still to decide` : ""}{decidedCount ? ` · ${decidedCount} decided, still counted` : ""}</div></div>
-                    </div>
-                    {band === "low" && findingCount === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No open deviations — the contract is clean against the playbook.</div> : null}
-                    {SEV_ORDER.filter((s) => bySev[s].length).map((s) => (
-                      <div key={s} className="sevgroup">
-                        <button className="sevhead" onClick={() => setOpenSevs((o) => ({ ...o, [s]: !o[s] }))}>
-                          <span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{bySev[s].length} {s}</span>
-                          <span className="chev">{openSevs[s] ? "▾" : "▸"}</span>
-                        </button>
-                        {openSevs[s] ? bySev[s].map((d) => (
-                          <div key={d.id} className={`risk ${s === "critical" ? "crit" : s === "high" ? "high" : s === "medium" ? "med" : "low"}`}>
-                            <div className="rh"><span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{s}</span><span className="rt">{(d.clause_type || "clause").replace(/_/g, " ")}</span></div>
-                            <div className="ri">{d.issue}</div>
-                            {d.suggested_fix ? <div className="rfix">{svg('<path d="M20 6 9 17l-5-5"/>')}<div><b>Fix:</b> {d.suggested_fix}</div></div> : null}
-                          </div>
-                        )) : null}
-                      </div>
-                    ))}
-                    {conceded.map((d) => { const s = sevOf(d.severity); return (
-                      <div key={d.deviation_id} className={`risk ${s === "critical" ? "crit" : s === "high" ? "high" : s === "medium" ? "med" : "low"}`}>
-                        <div className="rh"><span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{s}</span><span className="rt">accepted as-is — still counts</span></div>
-                        <div className="ri">{d.issue}</div>
-                      </div>
-                    ); })}
-                  </>
-                )}
-              </div></div>
-          )}
-
-          <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>')}</div><h2>Workflow &amp; stages</h2>{wf.length ? <span className="cnt" title={wfSkipped ? `${wfDone} done, ${wfSkipped} skipped` : undefined}>{wfDone}/{wf.length - wfSkipped}</span> : null}{hasRun ? <span className={`bdg ${runComplete ? "phase" : runFailed ? "warn" : "type"}`} style={{ marginLeft: "auto" }}>{runComplete ? "complete" : runFailed ? flowRun!.status : "live"}</span> : null}</div>
-            <div className="cb">
-              {hasRun ? <div className="flowmeta"><b>Running:</b> {flowRun!.flow_name}. <span className="dim">The workflow engine drives each step — agent runs, approvals, and signatures move it forward and back.</span></div>
-                : fs?.flow_name ? <div className="flowmeta"><b>Suggested:</b> {fs.flow_name}. <span className="dim">{fs.reasoning}</span>{canAct ? <> — <a onClick={() => startFlow.mutate(fs.flow_id ?? undefined)} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>start it →</a></> : null}</div>
-                : settingUp ? (
-                  // Just filed: the workflow starts in the background a few seconds later. Offering a
-                  // picker now invited a second workflow on the same request.
-                  <div className="flowmeta" aria-live="polite"><b>Setting up the workflow…</b> <span className="dim">This request was just filed. The workflow appears here in a few seconds.</span></div>
-                ) : (
-                  // No workflow is set up for this type (or none's conditions fit):
-                  // a person picks one — nothing starts by accident.
-                  <div className="flowmeta">
-                    <b>No workflow is set up for this request.</b> <span className="dim">{fs?.reasoning ?? "Pick one to start it."}</span>
-                    {canAct && (
-                      <select className="flowpick" value="" aria-label="Pick a workflow" disabled={startFlow.isPending}
-                        onChange={(e) => { if (e.target.value) startFlow.mutate(e.target.value); }}>
-                        <option value="">Pick a workflow to start…</option>
-                        {(allFlows ?? []).filter((f) => f.enabled).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                      </select>
-                    )}
-                  </div>
-                )}
-              {flowRun?.error ? <div className="flowmeta" style={{ color: "var(--warn)", marginTop: 6 }}>⚠ {flowRun.error}</div> : null}
-              <div className="steps" style={{ marginTop: 12 }}>
-                {wf.length === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No stages defined.</div> :
-                  wf.map((w, i) => {
-                    const rows = resultRows(w.result);
-                    const runSteps = hasRun ? flowRun!.steps ?? [] : [];
-                    const stg = runSteps[i] ? stepStage(runSteps[i]) : null;
-                    const newStage = stg && (i === 0 || stepStage(runSteps[i - 1]) !== stg);
-                    return (
-                    <Fragment key={i}>
-                    {newStage ? <div className="stagehd">Stage {LIFECYCLE.findIndex((x) => x.key === stg) + 1} · {LIFECYCLE.find((x) => x.key === stg)?.label}</div> : null}
-                    <div className={`step ${w.tone}${w.skipped ? " skip" : ""}`}>
-                      <div className="snode">{w.node}</div>
-                      <div className="shd"><span className="sname">{w.label}</span>
-                        {w.sub ? <span className="stype">{w.sub}</span> : null}
-                        {w.badge ? <span className={`sbadge ${w.badgeTone}`}>{w.badge}</span> : null}
-                        {hasRun && i === current?.idx && current?.status === "waiting_human" && canAct ? (() => {
-                          const doc = flowRun?.contract_id ?? cid;
-                          const dw = current ? STEP_DOORWAY[current.type] : undefined;
-                          return (
-                            <>
-                              {doc && dw ? <Link href={`/contracts/${doc}`} className="ministep doorway">{svg(dw.icon)}{dw.label}</Link> : null}
-                            </>
-                          );
-                        })() : null}</div>
-                      {interruptedStep?.idx === i ? <StepReviewNotice auto={contractStatus?.auto_review} canAct={canAct} busy={busy} onRetry={() => retryReview.mutate()} /> : null}
-                      {w.assign ? <div className="sassign">{svg('<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>')}Assigned to <b>{w.assign}</b></div> : null}
-                      {rows.length > 0 ? <div className="sresult">{rows.map(([k, v]) => <div key={k} className="rr"><span className="rk">{k}</span><span className="rv">{v}</span></div>)}</div> : null}
-                    </div>
-                    </Fragment>
-                  );})}
-              </div>
-
-              {/* Multi-agent hand-off trace — what each agent established, in order */}
-              {(flowRun?.brief ?? []).length > 0 ? (
-                <div style={{ marginTop: 14, padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface)" }}>
-                  <div className="lbl" style={{ fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)", marginBottom: 8 }}>Agent hand-off trace</div>
-                  <ol style={{ display: "flex", flexDirection: "column", gap: 8, margin: 0, padding: 0, listStyle: "none" }}>
-                    {(flowRun?.brief ?? []).map((b, i) => (
-                      <li key={i} style={{ display: "flex", gap: 10, fontSize: 13 }}>
-                        <span style={{ marginTop: 6, height: 6, width: 6, flexShrink: 0, borderRadius: 999, background: "var(--accent)" }} />
-                        <div style={{ minWidth: 0 }}>
-                          <span style={{ fontWeight: 600, color: "var(--ink-1)" }}>{(b.agent || b.type).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</span>
-                          <span style={{ color: "var(--ink-3)" }}> · {b.step}</span>
-                          <div style={{ color: "var(--ink-2)" }}>{b.summary}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-
-              {/* Guided negotiation round-trip — shows on a negotiate step */}
-              {hasRun && !runComplete && current?.type === "counterparty" && (flowRun?.contract_id ?? cid) ? (
-                <div style={{ marginTop: 12 }}>
-                  <NegotiationPanel contractId={(flowRun?.contract_id ?? cid)!} canAct={canAct} busy={busy} onConverged={() => completeStep.mutate()} />
-                </div>
-              ) : null}
-
-              {/* Dynamic edge: send an earlier step back for rework */}
-              {hasRun && !runComplete && canAct && curIdx > 0 ? (
-                <div className="sendback">
-                  <div className="lbl">Send back for rework</div>
-                  <select className="sel" ref={sendBackRef} value={backTo} onChange={(e) => setBackTo(e.target.value)}>
-                    <option value="">Pick the step to return to…</option>
-                    {wf.slice(0, curIdx).map((w) => <option key={w.sidx} value={String(w.sidx)}>{(w.sidx ?? 0) + 1}. {w.label}</option>)}
-                  </select>
-                  <input className="cin" value={backNote} placeholder="Reason / question for the owner…" onChange={(e) => setBackNote(e.target.value)} />
-                  <button className="btn" disabled={busy || backTo === ""} aria-describedby={backTo === "" ? "sendback-hint" : undefined} title={backTo === "" ? "Pick the step to return to first" : undefined} onClick={() => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined })}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back</button>
-                  {backTo === "" ? <div id="sendback-hint" className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>Pick the step to return to, then Send back is available.</div> : null}
-                </div>
-              ) : null}
-
-              {/* Comments & questions on the workflow */}
-              {hasRun ? (
-                <div className="wfcomments">
-                  <div className="lbl">Comments &amp; questions</div>
-                  {(flowRun!.comments ?? []).length === 0 ? <div className="dim" style={{ fontSize: 12 }}>No comments yet — leave a note or ask a question about a stage.</div> :
-                    <ul className="clist">{(flowRun!.comments ?? []).map((c, i) => (
-                      <li key={i} className={c.kind === "return" ? "ret" : ""}>
-                        <div className="cmeta"><b>{c.actor_name}</b><span className="dim"> · {fmtDateTime(c.at)}</span>{c.idx != null && wf[c.idx] ? <span className="dim"> · on {wf[c.idx].label}</span> : null}{c.kind === "return" ? <span className="cret"> sent back</span> : null}{c.kind === "reply" ? <span className="cret"> replied to the rejection</span> : null}</div>
-                        <div className="ctext">{c.text}</div>
-                      </li>
-                    ))}</ul>}
-                  {canAct ? (
-                    <div className="composer">
-                      <input className="cin" ref={commentRef} value={comment} aria-label="Add a comment or question" placeholder="Add a comment or question…" onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && comment.trim()) postComment.mutate(comment.trim()); }} />
-                      <button className="btn" disabled={!comment.trim() || postComment.isPending} onClick={() => postComment.mutate(comment.trim())}>Post</button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div></div>
-
-          {/* Ask Aegis — request-scoped chatbot */}
-          <div className="card"><div className="ch"><div className="glyph flow">{svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>')}</div><h2>Ask Aegis</h2><span className="cnt">{r.contract_id ? "this contract" : "portfolio"}</span></div>
-            <div className="cb chat">
-              <div className="log">
-                {chat.length === 0 ? (
-                  <div className="hint">Ask about this request — its terms, risks, obligations, or how it compares to precedent.
-                    <div className="chips">{["What are the key risks here?", "What obligations does this create?", "How does this compare to our standard terms?"].map((s) => <button key={s} className="chip" disabled={ask.isPending} onClick={() => { setChat((c) => [...c, { role: "you", text: s }]); ask.mutate(s); }}>{s}</button>)}</div>
-                  </div>
-                ) : chat.map((m, i) => (
-                  <div key={i} className={`msg ${m.role}`}>
-                    <div className="bub">{m.text}{m.role === "ai" && m.cites ? <span className="cites">· {m.cites} source{m.cites === 1 ? "" : "s"}</span> : null}</div>
-                  </div>
-                ))}
-                {ask.isPending ? <div className="msg ai"><div className="bub dim">Thinking…</div></div> : null}
-              </div>
-              <div className="composer">
-                <input className="cin" value={q} aria-label="Ask a question" placeholder="Ask a question…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }} />
-                <button className="btn pri" aria-label="Send" disabled={!q.trim() || ask.isPending} onClick={sendChat}>{svg('<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>')}</button>
-              </div>
-            </div></div>
+          <div role="tabpanel" id="rp-overview" aria-labelledby="rt-overview" className="rpane" data-on={tab === "overview" ? "1" : undefined} {...(tab === "overview" ? {} : { inert: true } as object)}>
+          {canAct && negotiation ? <div className="negwrap">{negotiation}</div> : null}
+          <OverviewPane rows={detailRows} docs={docs ?? []} activity={activityQ.data?.items ?? []} keyDates={keyDates} onTab={setTab} />
+                    <WhatWasAsked part="main" sourceTag={ai.source === "form" ? "from the form" : "as the AI understood it"} facts={facts}
+            priority={{ value: r.priority, aiSuggests: aiUrgency ?? null, canApply: canAct, applying: applyPriority.isPending, onApply: () => { if (aiUrgency && !applyPriority.isPending) applyPriority.mutate(aiUrgency); } }}
+            description={r.description?.trim() || null}
+            summary={<RequestSummarySection status={summaryQ.data ? "ready" : summaryQ.isError ? "error" : "loading"} data={summaryQ.data} onRetry={() => void summaryQ.refetch()} />}
+            // The answers a Statement of Work, Consultancy or DPA draft is made from; nothing for any other request. They
+            // are saved on the request, the held draft step (if any) is asked to look again, then the page fetches both afresh.
+            answers={(
+              <RequestAnswers request={r} canEdit={canAct && !r.contract_id}
+                heldNote={held ? current?.note : null} heldRunId={held ? flowRun?.id : null}
+                onSaved={(u) => { done(fv.request_form === "sow" ? "Deliverables saved" : "Answers saved")(u); qc.invalidateQueries({ queryKey: ["intake-request", id] }); }} />
+            )}
+            missingInfo={missingInfo}
+            degraded={triageDegraded.degraded ? { reason: triageDegraded.degraded_reason ?? null } : null}
+            read={read ?? null}
+            confidence={ai.confidence != null && ai.source !== "form" ? { value: Number(ai.confidence), complexity: ai.complexity ?? null } : null} />
+          </div>
+          <div role="tabpanel" id="rp-workflow" aria-labelledby="rt-workflow" className="rpane" data-on={tab === "workflow" ? "1" : undefined} {...(tab === "workflow" ? {} : { inert: true } as object)}>
+          <WorkflowCard rows={wf}
+            countText={wf.length ? `${wfDone} of ${wf.length - wfSkipped - wfNotApplicable} steps done${wfSkipped ? `, ${wfSkipped} skipped` : ""}` : null}
+            flow={flow} error={flowRun?.error ?? null}
+            check={checkLabel ? { label: checkLabel, onClick: () => checkStep.mutate(), busy } : null}
+            extras={extras} trace={[]}
+            sendBack={hasRun && !runComplete && canAct && curIdx > 0 ? {
+              options: wf.slice(0, curIdx).map((w) => ({ value: String(w.sidx), label: `${(w.sidx ?? 0) + 1}. ${w.label}` })),
+              to: backTo, note: backNote, onTo: setBackTo, onNote: setBackNote, busy, selectRef: sendBackRef,
+              onSend: () => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined }),
+              open: sendBackOpen, onToggle: () => setSendBackOpen((o) => !o),
+            } : null} />
+          </div>
+          <div role="tabpanel" id="rp-documents" aria-labelledby="rt-documents" className="rpane" data-on={tab === "documents" ? "1" : undefined} {...(tab === "documents" ? {} : { inert: true } as object)}>
+          <DocumentsCard docs={docs ?? []} contractHref={r.contract_id ? `/contracts/${r.contract_id}` : null}
+            contractActions={canAct && !r.contract_id && docType ? { docType, hasAttachment, busy, onIngest: () => ingest.mutate(), onDraft: () => draft.mutate() } : null}
+            trademark={canAct && isTrademarkRequest(r) ? { busy, onContinue: () => continueAsTrademark.mutate() } : null} />
+          </div>
+          <div role="tabpanel" id="rp-risk" aria-labelledby="rt-risk" className="rpane" data-on={tab === "risk" ? "1" : undefined} {...(tab === "risk" ? {} : { inert: true } as object)}>
+          {cid ? <RiskReview risk={risk} facts={rf} canRecompute={canManage} recomputing={rerunRisk.isPending} onRecompute={() => rerunRisk.mutate()} /> : null}
+          {cid ? <ReviewHistory contractId={cid} /> : null}
+          </div>
+          <div role="tabpanel" id="rp-ai" aria-labelledby="rt-ai" className="rpane" data-on={tab === "ai" ? "1" : undefined} {...(tab === "ai" ? {} : { inert: true } as object)}>
+          <WhatWasAsked part="ai" sourceTag={ai.source === "form" ? "from the form" : "as the AI understood it"} facts={facts}
+            priority={{ value: r.priority, aiSuggests: aiUrgency ?? null, canApply: canAct, applying: applyPriority.isPending, onApply: () => { if (aiUrgency && !applyPriority.isPending) applyPriority.mutate(aiUrgency); } }}
+            description={r.description?.trim() || null}
+            summary={<RequestSummarySection status={summaryQ.data ? "ready" : summaryQ.isError ? "error" : "loading"} data={summaryQ.data} onRetry={() => void summaryQ.refetch()} />}
+            // The answers a Statement of Work, Consultancy or DPA draft is made from; nothing for any other request. They
+            // are saved on the request, the held draft step (if any) is asked to look again, then the page fetches both afresh.
+            answers={(
+              <RequestAnswers request={r} canEdit={canAct && !r.contract_id}
+                heldNote={held ? current?.note : null} heldRunId={held ? flowRun?.id : null}
+                onSaved={(u) => { done(fv.request_form === "sow" ? "Deliverables saved" : "Answers saved")(u); qc.invalidateQueries({ queryKey: ["intake-request", id] }); }} />
+            )}
+            missingInfo={missingInfo}
+            degraded={triageDegraded.degraded ? { reason: triageDegraded.degraded_reason ?? null } : null}
+            read={read ?? null}
+            confidence={ai.confidence != null && ai.source !== "form" ? { value: Number(ai.confidence), complexity: ai.complexity ?? null } : null} />
+          </div>
+          <div role="tabpanel" id="rp-activity" aria-labelledby="rt-activity" className="rpane" data-on={tab === "activity" ? "1" : undefined} {...(tab === "activity" ? {} : { inert: true } as object)}>
+          <ActivityCard status={activityStatus} data={activityQ.data} onRetry={() => void activityQ.refetch()} />
+          </div>
+          <div role="tabpanel" id="rp-comments" aria-labelledby="rt-comments" className="rpane" data-on={tab === "comments" ? "1" : undefined} {...(tab === "comments" ? {} : { inert: true } as object)}>
+          <CommentsCard me={user?.full_name ?? null}
+            comments={(flowRun?.comments ?? []).map((c) => ({ actor: c.actor_name, at: c.at, text: c.text, kind: c.kind, stepLabel: c.idx != null && wf[c.idx] ? wf[c.idx].label : null }))}
+            composer={hasRun && canAct ? { value: comment, onChange: setComment, onPost: () => postComment.mutate(comment.trim()), posting: postComment.isPending, inputRef: commentRef } : null} />
+          </div>
+          <div role="tabpanel" id="rp-related" aria-labelledby="rt-related" className="rpane" data-on={tab === "related" ? "1" : undefined} {...(tab === "related" ? {} : { inert: true } as object)}>
+          <CounterpartyCard status={counterpartyStatus} data={counterpartyQ.data} parties={(r.parties ?? []) as { name: string }[]} onRetry={() => void counterpartyQ.refetch()} onOpenRequest={openRequest} />
+          </div>
         </div>
 
-        {/* right rail */}
-        <div className="col rail2">
-          {/* Next step — who the work is waiting on, by when, and what follows */}
-          {hasRun && (
-            <div className="card"><div className="ch"><div className="glyph flow">{svg('<path d="M5 12h14M13 6l6 6-6 6"/>')}</div><h2>Next step</h2></div>
-              <div className="cb"><NextStepCard run={flowRun!} teams={teams} /></div></div>
-          )}
-          {/* Your decision — the current step's call, risk-aware */}
-          {atReviewGate && (
-            <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>')}</div><h2>Your decision</h2></div><div className="cb">
-              <div className={`decide${unknownRisk || gateCount > 0 || band === "high" ? " warn" : " ok"}`}>
-                {unknownRisk ? <div className="dw">{svg(WARN_ICON)}{RISK_UNKNOWN_LABEL}{risk?.note ? ` — ${risk.note}` : ""}</div>
-                  : gateCount > 0 ? <div className="dw">{svg(WARN_ICON)}{critCount > 0 ? `${critCount} critical + ` : ""}{rc.high ?? 0} high risk{gateCount === 1 ? "" : "s"} open — review before approving</div>
-                  : band === "high" ? <div className="dw">{svg(WARN_ICON)}Overall risk is high — accepted issues still count</div>
-                  : <div className="dw ok">{svg('<path d="M20 6 9 17l-5-5"/>')}No blocking risks — clear to advance</div>}
-                {owed ? (
-                  <div className="reply">
-                    <label className="lbl" htmlFor="rework-reply">Reply to the rejection</label>
-                    <div className="why">Rejected: “{owed.reason}”</div>
-                    <textarea id="rework-reply" rows={3} maxLength={2000} value={reply} onChange={(e) => setReply(e.target.value)}
-                      placeholder="What did you change, or why does it stand? The approver sees this." />
-                  </div>
-                ) : null}
-                <div className="db">
-                  <button className="btn pri wide" disabled={busy || replyMissing} title={replyMissing ? "Reply to the rejection first" : undefined} onClick={approveStep}>{svg('<path d="M20 6 9 17l-5-5"/>')}Approve &amp; advance →</button>
-                  {curIdx > 0 ? <button className="btn wide" disabled={busy} title="Opens “Send back for rework”: pick the step and say why" onClick={() => { sendBackRef.current?.scrollIntoView({ block: "center" }); sendBackRef.current?.focus(); }}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back for rework…</button> : null}
-                  <button className="btn wide" title="Jumps to the comment box. Nothing is sent until you press Post" onClick={() => { commentRef.current?.focus(); commentRef.current?.scrollIntoView({ block: "center" }); }}>{svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>')}Add a comment</button>
-                </div>
+        <div className="col side">
+          {stepBlock ? (
+            <div className="stepblock" role="alert">
+              <span className="sb-ic" aria-hidden>!</span>
+              <div className="sb-tx">
+                <b>This step can't be completed yet</b>
+                <p>{stepBlock}</p>
+                {cid ? <a className="sb-go" href={`/contracts/${cid}`}>Open the contract to decide it</a> : null}
               </div>
-            </div></div>
-          )}
-
-          {/* Approval chain */}
-          {(approvals ?? []).length > 0 && (
-            <div className="card"><div className="ch"><h2>Approval chain</h2><span className="cnt">{(approvals ?? []).filter((a) => a.status === "approved").length}/{(approvals ?? []).length}</span></div><div className="cb">
-              {(approvals ?? []).slice().sort((a, b) => a.step_order - b.step_order).map((a, i) => {
-                const st = (a.status || "pending").toLowerCase();
-                const cls = st === "approved" ? "ok" : st === "rejected" ? "no" : "pend";
-                return (
-                  <div key={a.approval_request_id ?? `rung-${i}`} className="appr"><div className="an">{ini(a.approver_label || "?")}</div>
-                    <div className="al"><div className="n">{a.approver_label}</div><div className="r">step {a.step_order}{a.mode === "all" && a.needed ? ` · ${a.approvals ?? 0}/${a.needed}` : ""}</div></div>
-                    <span className={`as ${cls}`}>{st === "approved" ? "approved" : st === "rejected" ? "rejected" : "waiting"}</span></div>
-                );
-              })}
-            </div></div>
-          )}
-
-          {/* Relationship: what we already have on file with the counterparty */}
-          {(() => {
-            const sc = (r.screening ?? {}) as { counterparty?: string; parties?: { name: string; role: string }[]; relationship?: { note?: string } };
-            if (!sc.counterparty) return null;
-            const parties = sc.parties ?? [];
-            return (
-              <div className="card"><div className="ch"><h2>Relationship</h2></div><div className="cb glance">
-                <div className="row"><span className="k">Counterparty</span><span className="v">{sc.counterparty}</span></div>
-                {parties.length > 1 && (
-                  <div className="row"><span className="k">All parties</span><span className="v">{parties.map((p) => p.name).join(", ")}</span></div>
-                )}
-                {sc.relationship?.note && <div className="row"><span className="k">On file</span><span className="v">{sc.relationship.note}</span></div>}
-              </div></div>
-            );
-          })()}
-
-          {canAct && (
-            <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>')}</div><h2>Actions</h2></div><div className="cb actions">
-              {/* Turn the request into a contract (or adopt an attached draft). */}
-              {!r.contract_id && docType ? (
-                <div className="act">
-                  <div className="lbl">Contract</div>
-                  {hasAttachment ? (
-                    <>
-                      <button className="btn pri wide" disabled={busy} onClick={() => ingest.mutate()}>Use attached as the {docType} →</button>
-                      <button className="btn wide" disabled={busy} onClick={() => draft.mutate()}>Approve &amp; draft fresh</button>
-                    </>
-                  ) : (
-                    <button className="btn pri wide" disabled={busy} onClick={() => draft.mutate()}>Approve &amp; draft the {docType} →</button>
-                  )}
-                </div>
-              ) : null}
-              {/* Continue a trademark-flavored request into the Trademark Suite. */}
-              {isTrademarkRequest(r) ? (
-                <div className="act">
-                  <div className="lbl">Trademark</div>
-                  <button className="btn pri wide" disabled={busy} onClick={() => continueAsTrademark.mutate()}>Continue as Trademark →</button>
-                </div>
-              ) : null}
-              {/* Reassign the owner. */}
-              <div className="act">
-                <div className="lbl">Owner</div>
-                <select className="sel" value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}>
-                  <option value="">{r.assigned_to_label ? `Current: ${r.assigned_to_label}` : "Unassigned — pick an owner"}</option>
-                  {(assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-                <button className="btn wide" disabled={busy || !reassignTo} onClick={() => reassign.mutate(reassignTo)}>Reassign owner</button>
+              <button type="button" className="sb-x" aria-label="Dismiss" onClick={() => setStepBlock(null)}>×</button>
+            </div>
+          ) : null}
+          <DecisionArea
+            approval={pendingApproval ? <ApprovalCard requestId={id} rungs={approvals ?? []} runId={flowRun?.id ?? null} stepName={approvalStepName} subject={approvalSubject} /> : null}
+            human={human}
+            negotiation={null}
+            signature={signature} />
+          <PeopleCard stepPerson={(() => { const n = current?.approval?.approver_label ?? current?.assignee_label; return n ? { name: n, role: current?.approval ? "approver" : "current step" } : null; })()} owner={r.assigned_to_label ?? null} requester={r.requester_name ?? null} department={r.department ?? null}
+            reassign={canAct ? { options: (assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => ({ id: a.id, name: a.name })), value: reassignTo, onChange: setReassignTo, onReassign: () => reassign.mutate(reassignTo), busy } : null} />
+          {counterpartyQ.data?.name ? (
+            <div className="card tint-vio">
+              <div className="ch"><div className="glyph g-vio"><Building2 className="ic" aria-hidden /></div><h2>About the counterparty</h2></div>
+              <div className="cb cpmini">
+                <div className="cpn"><i aria-hidden>{counterpartyQ.data.name.slice(0, 1).toUpperCase()}</i><b>{counterpartyQ.data.name}</b></div>
+                <div className="cpc"><span><b>{counterpartyQ.data.summary.contracts}</b> contracts</span><span><b>{counterpartyQ.data.summary.active}</b> active</span><span><b>{counterpartyQ.data.summary.requests}</b> requests</span></div>
+                <button type="button" className="lnk" onClick={() => setTab("related")}>See contracts and earlier requests</button>
               </div>
-            </div></div>
-          )}
+            </div>
+          ) : null}
 
-          <div className="card"><div className="ch"><h2>At a glance</h2></div><div className="cb glance">
-            <div className="row"><span className="k">Raised by</span><span className="v">{r.requester_name ?? "—"}</span></div>
-            {r.filed_by_agent ? <div className="row"><span className="k">Filed by</span><span className="v">Agent · {r.filed_by_agent_name ?? "unknown"}</span></div> : null}
-            <div className="row"><span className="k">Department</span><span className="v">{r.department ?? "—"}</span></div>
-            <div className="row"><span className="k">Request owner</span><span className="v" title="Looks after the whole request. A step can be assigned to someone else.">{r.assigned_to_label ?? "Unassigned"}</span></div>
-            <div className="row"><span className="k">Stage</span><span className="v">{stageLabel ?? r.stage}</span></div>
-            <div className="row"><span className="k">Priority</span><span className="v">{r.priority}{aiUrgency && aiUrgency !== r.priority ? <span className="dim"> · AI suggests {aiUrgency}{canAct ? <> — <a onClick={() => !applyPriority.isPending && applyPriority.mutate(aiUrgency)} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>apply</a></> : null}</span> : null}</span></div>
-            <div className="row"><span className="k">SLA</span><span className="v" style={{ color: stuck ? "var(--crit)" : r.sla_status === "at_risk" ? "var(--warn)" : "var(--good)" }}>{stuck ? "overdue" : r.sla_status === "at_risk" ? "at risk" : "on track"}</span></div>
-          </div></div>
-
-          <div className="card"><div className="ch"><h2>Documents</h2></div><div className="cb">
-            {(docs ?? []).length === 0 ? <div className="dim" style={{ fontSize: 12 }}>No documents attached.</div> :
-              (docs ?? []).map((d) => (
-                <div key={d.id} className="docrow"><div className={`x ${/pdf/i.test(d.mime_type) ? "pdf" : "doc"}`}>{/pdf/i.test(d.mime_type) ? "PDF" : "DOC"}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}><div className="n" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.filename}</div><div className="m">{d.extracted_chars > 0 ? "parsed" : "attached"}</div></div></div>
-              ))}
-            {r.contract_id ? <Link href={`/contracts/${r.contract_id}`} className="btn wide" style={{ marginTop: 12 }}>{svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')}Open in CLM editor →</Link> : null}
-          </div></div>
-
-          <div className="card"><div className="ch"><h2>People</h2></div><div className="cb">
-            <div className="person"><div className="av">{ini(r.requester_name ?? "R")}</div><div><div className="n">{r.requester_name ?? "Requester"}</div><div className="r">requester</div></div></div>
-            {r.assigned_to_label ? <div className="person"><div className="av">{ini(r.assigned_to_label)}</div><div><div className="n">{r.assigned_to_label}</div><div className="r">request owner</div></div></div> : null}
-          </div></div>
-
-          <div className="card"><div className="ch"><h2>Activity</h2></div><div className="cb">
-            <ul className="trail">
-              {activityTrail({ requester: r.requester_name, raisedAt: r.created_at ?? r.submitted_at, handoffs: handoffs ?? [], comments: flowRun?.comments ?? [] }).map((t) => (
-                <li key={t.key} className={t.tone === "you" ? "you" : t.tone === "cp" ? "cp" : ""}><span className="w">{t.who}</span> · {t.what}<div className="t">{t.at ? fmtDateTime(t.at) : ""}</div></li>
-              ))}
-            </ul>
-          </div></div>
         </div>
       </div>
     </div>
   );
 }
 
+// Base rules for the page and the shared bits the cards use (.card .ch .cb .btn .sel .cin .composer .facts …).
+// Each card's own rules live in its component file and are appended after these.
 const RO_CSS = `
+.ro .stepblock{display:flex;gap:12px;align-items:flex-start;padding:14px 14px 14px 16px;margin-bottom:14px;border-radius:16px;background:var(--warn-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,var(--border));animation:sbin .35s cubic-bezier(.2,.8,.2,1) both}
+@keyframes sbin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.ro .sb-ic{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--warn);color:var(--accent-ink);font:800 14px var(--sans)}
+.ro .sb-tx{min-width:0;flex:1;font-size:12.5px;line-height:1.5;color:var(--ink-2)} .ro .sb-tx b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px} .ro .sb-tx p{margin:0 0 6px;overflow-wrap:anywhere}
+.ro .sb-go{font-weight:650;color:var(--accent);text-decoration:none} .ro .sb-go:hover{text-decoration:underline}
+.ro .sb-x{flex:none;width:26px;height:26px;border-radius:50%;font-size:18px;line-height:1;color:var(--ink-3)} .ro .sb-x:hover{background:var(--surface);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){.ro .stepblock{animation:none}}
+.ro{min-width:0;max-width:1280px;margin:0 auto}
 .ro .lbl{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 .ro .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ro .rohd{padding:4px 0 14px;border-bottom:1px solid var(--border);margin-bottom:4px}
-.ro .crumb{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-3);margin-bottom:8px}
-.ro .crumb a{text-decoration:none;font-weight:600}
-.ro .hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.ro .hrow h1{font-size:17px;font-weight:660;margin:0;letter-spacing:-.015em}
-.ro .ref{font:600 11px var(--mono);color:var(--ink-3)}
-.ro .badges{display:flex;gap:6px;flex-wrap:wrap}
-.ro .bdg{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font:600 11px var(--sans)}
-.ro .bdg.type{background:var(--ext-soft);color:var(--ext)} .ro .bdg.val{background:var(--surface-2);color:var(--ink-2)}
-.ro .bdg.phase{background:var(--accent-soft);color:var(--accent)} .ro .bdg.warn{background:var(--warn-soft);color:var(--warn)}
-.ro .needsinfo{display:flex;gap:9px;margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 30%,var(--border))}
-.ro .needsinfo .ic{width:16px;height:16px;color:var(--warn);flex:none;margin-top:1px}
-.ro .needsinfo b{font:600 12.5px var(--sans);color:var(--warn)}
-.ro .ni-items{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
-.ro .ni-chip{font:600 11px var(--sans);padding:2px 8px;border-radius:999px;background:var(--bg);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--border));color:var(--ink-1)}
-.ro .ni-hint{font:11px var(--sans);color:var(--ink-3);margin-top:5px}
-.ro .btn{gap:7px;padding:8px 13px}
-  .ro .btn.wide{width:100%}
-.ro .flowstrip{margin-top:14px;display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
-.ro .youare{flex:none;display:flex;align-items:center;gap:11px;padding:8px 13px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));border-radius:11px}
-.ro .youare.blocked{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 34%,var(--border))}
-.ro .youare .ya-ic{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none} .ro .youare.blocked .ya-ic{background:var(--warn)}
-.ro .youare .k{font:600 9.5px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--accent)} .ro .youare.blocked .k{color:var(--warn)}
-.ro .youare .v{font-weight:700;font-size:14px;letter-spacing:-.01em} .ro .youare .m{font-size:11.5px;color:var(--ink-2)}
-.ro .lcwrap{flex:1;min-width:0;overflow-x:auto}
-.ro .stagehd{margin:14px 0 6px;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
-.ro .stagehd:first-child{margin-top:0}
-.ro .body{display:grid;grid-template-columns:1fr 316px;gap:20px;padding:18px 0 20px}
+.ro .btn{gap:7px;padding:0 14px;min-height:34px;border-radius:9px;font-weight:600;transition:background .12s,filter .12s,border-color .12s}
+.ro .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ro .btn.wide{width:100%}
+.ro .body{display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:18px;align-items:start;padding:16px 0 24px}
 .ro .col{min-width:0;display:flex;flex-direction:column;gap:16px}
-.ro .card{border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow)}
-.ro .card>.ch{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--border)}
-.ro .card>.ch h2{font-size:13px;font-weight:660;margin:0} .ro .card>.ch .cnt{font:700 10px var(--mono);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:1px 7px}
-.ro .card>.cb{padding:15px 16px}
-.ro .glyph{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--ink-2)}
+.ro .card{border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:0 1px 2px rgba(20,26,40,.04);transition:box-shadow .15s,border-color .15s}
+.ro .card:hover{box-shadow:0 4px 18px -8px rgba(20,26,40,.14)}
+.ro .card>.ch{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border)}
+.ro .card>.ch h2{font-size:14px;font-weight:650;margin:0;letter-spacing:-.01em} .ro .card>.ch .cnt{font:700 10px var(--mono);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:1px 7px}
+.ro .card>.cb{padding:16px 18px}
+.ro .glyph{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--ink-2)}
 .ro .glyph.warn{background:var(--warn-soft);color:var(--warn)} .ro .glyph.flow{background:var(--accent-soft);color:var(--accent)}
-.ro .quote{padding:12px 14px;background:var(--inset);border:1px solid var(--border);border-left:3px solid var(--border-strong);border-radius:9px;color:var(--ink-2);font-size:12.5px;line-height:1.65}
-.ro .facts{display:grid;grid-template-columns:1fr 1fr;gap:11px 18px;margin-top:14px}
-.ro .facts .f .k{font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)} .ro .facts .f .v{font-weight:600;margin-top:2px}
-.ro .confline{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--ink-2)}
-.ro .track{flex:none;height:5px;width:90px;border-radius:3px;background:var(--surface-2);overflow:hidden} .ro .track .fill{height:100%}
-.ro .flowmeta{font-size:12.5px;color:var(--ink-2);line-height:1.6}
-.ro .flowpick{display:block;margin-top:8px;width:100%;max-width:360px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
-.ro .steps{margin-top:4px}
-.ro .step{position:relative;padding:0 0 4px 30px}
-.ro .step::before{content:"";position:absolute;left:9px;top:22px;bottom:-4px;width:2px;background:var(--border)} .ro .step:last-child::before{display:none}
-.ro .snode{position:absolute;left:2px;top:3px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 9px var(--mono);background:var(--surface);border:2px solid var(--border-strong);color:var(--ink-3)}
-.ro .step.done .snode{background:var(--good);border-color:var(--good);color:#fff}
-.ro .step.skip .snode{background:var(--surface);border-color:var(--border-strong);color:var(--ink-3)}
-.ro .step.cur .snode{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-soft)}
-.ro .step.warn .snode{background:var(--warn);border-color:var(--warn);color:#fff}
-.ro .shd{display:flex;align-items:center;gap:9px;padding:2px 0 10px}
-.ro .sname{font-weight:650;font-size:13px} .ro .step.todo .sname{color:var(--ink-3);font-weight:600}
-.ro .sbadge{font:600 10px var(--sans);padding:1px 8px;border-radius:99px}
-.ro .sbadge.done{background:var(--good-soft);color:var(--good)} .ro .sbadge.cur{background:var(--accent-soft);color:var(--accent)} .ro .sbadge.warn{background:var(--warn-soft);color:var(--warn)} .ro .sbadge.skip{background:var(--surface-2,var(--surface));color:var(--ink-3);border:1px solid var(--border)}
-.ro .stype{font:600 10px var(--sans);color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
-.ro .sassign{display:flex;align-items:center;gap:6px;margin:2px 0 6px;font-size:11.5px;color:var(--ink-2)} .ro .sassign .ic{width:12px;height:12px;color:var(--ink-3)} .ro .sassign b{font-weight:650;color:var(--ink)}
-.ro .sresult{margin:2px 0 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--inset);display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
-.ro .sresult .rr{display:contents} .ro .sresult .rk{font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);white-space:nowrap} .ro .sresult .rv{font-size:12px;color:var(--ink)}
-.ro .cin{padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
-.ro .sendback{margin-top:14px;padding:12px;border:1px dashed var(--border-strong);border-radius:10px;display:flex;flex-direction:column;gap:8px}
-.ro .sendback .lbl,.ro .wfcomments .lbl{font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-.ro .wfcomments{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:8px}
-.ro .wfcomments .clist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
-.ro .wfcomments .clist li{padding:8px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)} .ro .wfcomments .clist li.ret{border-color:color-mix(in srgb,var(--warn) 34%,var(--border));background:var(--warn-soft)}
-.ro .wfcomments .cmeta{font-size:11px;color:var(--ink-2);margin-bottom:3px} .ro .wfcomments .cmeta b{color:var(--ink)} .ro .wfcomments .cret{color:var(--warn);font-weight:600}
-.ro .wfcomments .ctext{font-size:12.5px;color:var(--ink);line-height:1.55;white-space:pre-wrap}
-.ro .composer{display:flex;gap:8px} .ro .composer .cin{flex:1;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
-.ro .ministep{margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font:600 11px var(--sans);cursor:pointer}
-.ro .ministep[disabled]{opacity:.5;pointer-events:none} .ro .ministep .ic{width:12px;height:12px}
-.ro .ministep.doorway{text-decoration:none}
-.ro .ministep.ghost{margin-left:6px;background:transparent;color:var(--accent)}
+.ro .facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 16px;margin-top:0}
+.ro .facts .f .k{font:600 10.5px var(--sans);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)} .ro .facts .f .v{font-weight:600;font-size:13.5px;margin-top:3px;overflow-wrap:anywhere;min-width:0}
+.ro .pill{display:inline-flex;padding:1px 9px;border-radius:99px;font:600 11px var(--sans);white-space:nowrap}
+.ro .pill.bad{background:var(--crit-soft);color:var(--crit)} .ro .pill.warn{background:var(--warn-soft);color:var(--warn)}
+.ro .cin{min-height:36px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
+.ro .sel{width:100%;min-height:36px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:600 12.5px var(--sans)}
+.ro .composer{display:flex;gap:8px} .ro .composer .cin{flex:1;min-width:0;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
 .ro .spin{gap:7px;opacity:.75;pointer-events:none} .ro .spin .ic{animation:ro-spin 1s linear infinite}
 @keyframes ro-spin{to{transform:rotate(360deg)}}
-.ro .chat{display:flex;flex-direction:column;gap:10px}
-.ro .chat .log{display:flex;flex-direction:column;gap:9px;max-height:320px;overflow-y:auto}
-.ro .chat .hint{font-size:12.5px;color:var(--ink-2);line-height:1.6}
-.ro .chat .chips{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.ro .chat .chip{text-align:left;padding:7px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);color:var(--ink-2);font:500 12px var(--sans);cursor:pointer}
-.ro .chat .chip:hover{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,var(--border))}
-.ro .chat .msg{display:flex} .ro .chat .msg.you{justify-content:flex-end}
-.ro .chat .bub{max-width:82%;padding:9px 12px;border-radius:12px;font-size:12.5px;line-height:1.6;white-space:pre-wrap}
-.ro .chat .msg.you .bub{background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:4px}
-.ro .chat .msg.ai .bub{background:var(--surface-2);color:var(--ink);border:1px solid var(--border);border-bottom-left-radius:4px}
-.ro .chat .bub.dim{color:var(--ink-3)} .ro .chat .cites{margin-left:6px;font-size:10.5px;color:var(--ink-3)}
-.ro .chat .composer{display:flex;gap:8px}
-.ro .chat .cin{flex:1;padding:9px 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
-.ro .chat .composer .btn.pri{padding:9px 12px} .ro .chat .composer .btn .ic{margin:0}
-.ro .cactions{display:flex;gap:8px;flex-wrap:wrap}
-.ro .actions{display:flex;flex-direction:column;gap:16px}
-.ro .act{display:flex;flex-direction:column;gap:8px}
-.ro .act .lbl{font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-
-.ro .sel{width:100%;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:600 12.5px var(--sans)}
-.ro .glance .row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px} .ro .glance .row:last-child{border-bottom:0}
-.ro .glance .k{color:var(--ink-3)} .ro .glance .v{font-weight:600;text-align:right}
-.ro .person{display:flex;align-items:center;gap:9px;padding:8px 0}
-.ro .person .av{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:11px;flex:none}
-.ro .person .n{font-weight:600;font-size:12.5px} .ro .person .r{font-size:11px;color:var(--ink-3)}
-.ro .docrow{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--border)} .ro .docrow:last-of-type{border-bottom:0}
-.ro .docrow .x{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font:700 8.5px var(--sans);flex:none}
-.ro .docrow .x.pdf{background:var(--crit-soft);color:var(--crit)} .ro .docrow .x.doc{background:var(--accent-soft);color:var(--accent)}
-.ro .docrow .n{font-weight:600;font-size:12.5px} .ro .docrow .m{font-size:11px;color:var(--ink-3)}
-.ro .trail{list-style:none;margin:0;padding:0}
-.ro .trail li{position:relative;padding:0 0 13px 20px;font-size:12px}
-.ro .trail li::before{content:"";position:absolute;left:4px;top:3px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--surface)}
-.ro .trail li::after{content:"";position:absolute;left:7.5px;top:11px;bottom:0;width:1px;background:var(--border)} .ro .trail li:last-child::after{display:none}
-.ro .trail li.you::before{background:var(--good)} .ro .trail li.cp::before{background:var(--ext)}
-.ro .trail .w{font-weight:650;color:var(--ink)} .ro .trail .t{color:var(--ink-3);font-size:10.5px}
 .ro .dim{color:var(--ink-3)}
 .ro .analyzing{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-2)} .ro .analyzing .ic{width:15px;height:15px;color:var(--accent);animation:ro-spin 1s linear infinite}
-.ro .risktop{display:flex;align-items:center;gap:14px;padding:2px 0 8px}
-.ro .rgauge{flex:none;width:50px;height:50px;border-radius:50%;display:grid;place-items:center;font:800 16px var(--mono);color:#fff}
-.ro .rmeta .rb{font-weight:700;font-size:14px} .ro .rmeta .rc{font-size:11.5px;color:var(--ink-2);margin-top:1px}
-.ro .rsum{padding:11px 13px;background:var(--inset);border:1px solid var(--border);border-radius:9px;font-size:12.5px;line-height:1.6;color:var(--ink);margin:0 0 12px}
-.ro .sevgroup{margin-bottom:8px}
-.ro .sevhead{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:4px 0;cursor:pointer} .ro .sevhead .chev{color:var(--ink-3);font-size:11px}
-.ro .sevpill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:99px;font:700 11px var(--sans);text-transform:capitalize}
-.ro .sev-critical{background:#fdecec;color:#b42318} .ro .sev-high{background:var(--crit-soft);color:var(--crit)} .ro .sev-med{background:var(--warn-soft);color:var(--warn)} .ro .sev-low{background:var(--surface-2);color:var(--ink-2)}
-.ro .risk{border:1px solid var(--border);border-left:3px solid var(--border-strong);border-radius:9px;padding:10px 12px;margin:0 0 8px}
-.ro .risk.crit{border-left-color:#b42318} .ro .risk.high{border-left-color:var(--crit)} .ro .risk.med{border-left-color:var(--warn)}
-.ro .risk .rh{display:flex;align-items:center;gap:8px;margin-bottom:5px} .ro .risk .rt{font-weight:650;font-size:12.5px;text-transform:capitalize}
-.ro .risk .ri{font-size:12px;color:var(--ink-2);line-height:1.55}
-.ro .risk .rq{margin:7px 0;padding:7px 10px;border-left:2px solid var(--border-strong);background:var(--inset);font-size:11.5px;font-style:italic;color:var(--ink-2);line-height:1.5}
-.ro .risk .rfix{display:flex;gap:6px;font-size:12px;color:var(--good);line-height:1.5} .ro .risk .rfix .ic{width:13px;height:13px;flex:none;margin-top:2px} .ro .risk .rfix b{color:var(--ink);font-weight:600}
-.ro .decide{border-radius:10px;padding:12px} .ro .decide.warn{border:1px solid color-mix(in srgb,var(--warn) 34%,var(--border));background:var(--warn-soft)} .ro .decide.ok{border:1px solid color-mix(in srgb,var(--good) 30%,var(--border));background:var(--good-soft)}
-.ro .decide .dw{display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--warn);font-weight:600;margin-bottom:10px;line-height:1.4} .ro .decide .dw.ok{color:var(--good)} .ro .decide .dw .ic{width:15px;height:15px;flex:none;margin-top:1px}
-.ro .decide .db{display:flex;flex-direction:column;gap:7px}
-.ro .decide .reply{display:flex;flex-direction:column;gap:6px;margin-bottom:10px} .ro .decide .reply .lbl{font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)} .ro .decide .reply .why{font-size:12.5px;line-height:1.45;color:var(--ink)}
-.ro .decide .reply textarea{padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans);resize:vertical;outline:none}
-.ro .appr{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--border)} .ro .appr:last-child{border-bottom:0}
-.ro .appr .an{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font:700 10px var(--mono);color:var(--ink-2);flex:none}
-.ro .appr .al{flex:1;min-width:0} .ro .appr .al .n{font-weight:600;font-size:12.5px} .ro .appr .al .r{font-size:11px;color:var(--ink-3)}
-.ro .appr .as{font:600 10px var(--sans);padding:2px 8px;border-radius:99px;flex:none} .ro .as.ok{background:var(--good-soft);color:var(--good)} .ro .as.pend{background:var(--surface-2);color:var(--ink-3)} .ro .as.no{background:var(--crit-soft);color:var(--crit)}
-@media (max-width:1080px){.ro .body{grid-template-columns:1fr}.ro .rail2{order:-1}}
+.ro .lower{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;padding:0 0 28px}
+/* Von Restorff: whatever needs a decision is the one raised, accent-edged thing on the page. */
+.ro .decision>*{border-radius:14px;box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 35%,var(--border)),0 10px 28px -14px color-mix(in srgb,var(--accent) 45%,transparent)}
+.ro .decide{border-radius:12px}
+@media (max-width:1180px){.ro .body,.ro .lower{grid-template-columns:minmax(0,1fr)}}
 `;

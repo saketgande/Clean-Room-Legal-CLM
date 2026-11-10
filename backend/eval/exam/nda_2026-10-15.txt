@@ -1,0 +1,137 @@
+{nda_kind_title}NON-DISCLOSURE AGREEMENT
+
+This {nda_kind_word} Non-Disclosure Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("{counterparty}"). {company} and {counterparty} are each a "Party" and together the "Parties."
+
+RECITALS
+
+A. The Parties wish to {purpose_phrase} (the "Purpose").
+
+B. In connection with the Purpose, confidential and proprietary information may be disclosed. {direction_recital}
+
+C. The Parties wish to set out the terms on which such information will be disclosed, used and protected.
+
+NOW, THEREFORE, in consideration of the mutual covenants in this Agreement and the disclosure of Confidential Information, the Parties agree as follows.
+
+1. DEFINITIONS
+
+1.1 "Disclosing Party" means the Party that discloses Confidential Information, directly or through its Representatives, and "Receiving Party" means the Party that receives it, in each case as identified in the Recitals.
+
+1.2 "Representatives" means the Receiving Party's directors, officers and employees, and its individual professional advisers (lawyers, accountants and financial advisers), in each case who have a strict need to know the Confidential Information for the Purpose.
+
+1.3 "Affiliate" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where "control" means ownership of more than fifty percent (50%) of the voting interests of the entity.
+
+1.4 "Purpose" has the meaning given in Recital A.
+
+2. DEFINITION OF CONFIDENTIAL INFORMATION
+
+2.1 "Confidential Information" means any and all non-public information disclosed by the Disclosing Party to the Receiving Party, before or after the Effective Date, in any form or medium (whether written, oral, electronic, visual or by demonstration or inspection), including without limitation technical, financial, business, operational, commercial and personnel information, trade secrets, know-how, inventions, source code, product plans, business plans, pricing, financial data, customer and supplier lists, AI/ML training data, model weights, datasets, and any outputs or derivatives thereof, regardless of whether such information is marked or identified as "confidential."
+
+2.2 Confidential Information expressly includes: (a) all data, datasets, and information used to train, fine-tune, or evaluate any artificial intelligence or machine learning model; (b) outputs, embeddings, or derivative works generated using Disclosing Party's Confidential Information; and (c) the fact that discussions between the parties are occurring.
+
+2.3 Confidential Information also includes all notes, analyses, compilations, summaries, forecasts and other materials prepared by or for the Receiving Party or its Representatives that contain, reflect or are derived from any Confidential Information, and the existence and terms of this Agreement.
+
+3. EXCLUSIONS FROM CONFIDENTIAL INFORMATION
+
+3.1 The obligations of confidentiality shall not apply to information that the Receiving Party can demonstrate by clear and convincing written evidence: (a) is or becomes publicly available through no act or omission of the Receiving Party or its Representatives in breach of this Agreement; (b) was rightfully known to the Receiving Party prior to disclosure, as shown by documentary records in existence at the time of disclosure; (c) is rightfully received from a third party without restriction and without breach of any obligation of confidentiality owed to the Disclosing Party; or (d) is independently developed by the Receiving Party without reference to or use of the Confidential Information.
+
+3.2 The Receiving Party bears the burden of proving by clear and convincing written evidence that any exclusion applies. No combination or aggregation of non-confidential elements shall be deemed non-confidential if the combination itself constitutes Confidential Information.
+
+3.3 Confidential Information shall not be deemed to fall within any exclusion merely because individual features or elements of it are publicly available or in the Receiving Party's possession. No right to use information retained in the unaided memory of any person is granted under this Agreement.
+
+4. PERMITTED USE AND STANDARD OF CARE
+
+4.1 The Receiving Party shall use Confidential Information solely for the Purpose and for no other purpose whatsoever.
+
+4.2 The Receiving Party shall protect Confidential Information using the higher of (a) reasonable care or (b) the same degree of care it uses to protect its own confidential information of similar sensitivity, but no less than a high degree of care.
+
+4.3 The Receiving Party shall not use Confidential Information to train, fine-tune, test, or otherwise develop any artificial intelligence or machine learning model, algorithm, or system. Disclosure to third-party service providers requires prior written consent of the Disclosing Party.
+
+4.4 The Receiving Party may disclose Confidential Information only to those of its Representatives who have a strict need to know it for the Purpose and who are bound by written confidentiality obligations at least as protective as those in this Agreement. Disclosure to any Affiliate, contractor or other third party (including any third-party service provider) requires the prior written consent of the Disclosing Party and, before any disclosure, that recipient's written agreement to confidentiality obligations at least as protective as those in this Agreement. The Receiving Party is responsible for any act or omission of its Representatives and of any other person to whom it discloses Confidential Information that would be a breach of this Agreement if done by the Receiving Party.
+
+4.5 The Receiving Party shall not copy or reproduce Confidential Information except as strictly necessary for the Purpose, and shall not reverse engineer, decompile or disassemble any prototype, software, sample or other tangible object embodying Confidential Information.
+
+4.6 The Receiving Party shall notify the Disclosing Party in writing promptly, and in any event within forty-eight (48) hours, after becoming aware of any actual or suspected unauthorized access to, or use or disclosure of, Confidential Information, and shall cooperate with the Disclosing Party to regain possession of the Confidential Information and prevent any further unauthorized use or disclosure.
+
+5. COMPELLED DISCLOSURE AND LEGAL PROCESS
+
+5.1 If the Receiving Party or any of its Representatives receives any subpoena, court order, regulatory demand or other legal process requiring disclosure of any Confidential Information, the Receiving Party shall: (a) provide prompt written notice to the Disclosing Party prior to any such disclosure to the extent permitted by law; (b) cooperate fully with the Disclosing Party in seeking a protective order, confidential treatment, or other appropriate relief; and (c) disclose only that portion of the Confidential Information that is legally required to be disclosed.
+
+5.2 Where applicable law prohibits notice before disclosure, the Receiving Party shall give such notice as soon as legally permissible. In every case the Receiving Party shall disclose only the minimum amount of Confidential Information legally required and shall use reasonable efforts to obtain confidential treatment for any Confidential Information so disclosed.
+
+5.3 Any disclosure made in compliance with this Section 5 shall not cause the information disclosed to cease to be Confidential Information for any other purpose, and all other obligations under this Agreement shall continue to apply to it.
+
+6. RETURN OR DESTRUCTION OF INFORMATION
+
+6.1 Upon expiration or termination of this Agreement, or upon written request by the Disclosing Party at any time, the Receiving Party shall promptly (and in any event within ten (10) business days) return or permanently destroy all Confidential Information, including all copies, extracts, and derivatives thereof, in whatever form held by the Receiving Party or its Representatives.
+
+6.2 Within ten (10) business days of expiration, termination, or written request, the Receiving Party shall return or permanently destroy all Confidential Information (including all copies, extracts, and derivatives) and provide written certification of such return or destruction signed by an authorized representative who is an officer of the Receiving Party.
+
+6.3 Destruction of electronic Confidential Information includes permanent deletion of all electronic copies, including copies held in backup and archival systems. The Receiving Party shall not retain any copy of Confidential Information except to the extent retention is required by applicable law or regulation, in which case the Receiving Party shall notify the Disclosing Party in writing of the information retained and the legal requirement, shall limit retention to that requirement, and shall continue to hold the retained information subject to this Agreement for as long as it is retained, notwithstanding any expiry of this Agreement.
+
+7. TERM AND DURATION OF CONFIDENTIALITY
+
+7.1 This Agreement commences on the Effective Date and {term_clause}, unless earlier terminated by either Party on thirty (30) days' prior written notice to the other Party.
+
+7.2 The Receiving Party's obligations of confidentiality shall survive expiration or termination of this Agreement and shall {survival_clause} after such expiration or termination with respect to general Confidential Information.
+
+7.3 Notwithstanding the foregoing, confidentiality obligations with respect to information constituting a trade secret under applicable law shall survive indefinitely or for so long as such information retains its status as a trade secret, whichever is longer.
+
+7.4 Sections 2, 3, 4, 5, 6, 7, 8, 9, 10 and 11, and any other provision which by its nature is intended to survive, shall survive expiration or termination of this Agreement.
+
+8. REMEDIES AND INJUNCTIVE RELIEF
+
+8.1 Each party acknowledges that a breach or threatened breach of this Agreement would cause irreparable harm to the Disclosing Party for which monetary damages would be an inadequate remedy, and that the Disclosing Party shall be entitled to seek injunctive or other equitable relief without the requirement to post bond or other security.
+
+8.2 Accordingly, each Party, in its capacity as Disclosing Party, shall be entitled to seek injunctive or other equitable relief to prevent or remedy any breach or threatened breach of this Agreement, without the requirement to post any bond or other security, and without prejudice to any other rights or remedies available at law or in equity. The rights and remedies under this Agreement are cumulative.
+
+8.3 No limitation or exclusion of liability in this Agreement or in any other agreement between the Parties shall apply to, or cap, a Party's liability for breach of its confidentiality obligations under this Agreement.
+
+8.4 In any action to enforce this Agreement, the prevailing Party shall be entitled to recover its reasonable legal fees and costs from the other Party.
+
+9. GOVERNING LAW AND JURISDICTION
+
+9.1 This Agreement shall be governed by and construed in accordance with the laws of {governing_law}, without regard to its conflict of laws principles. Each party irrevocably submits to the exclusive jurisdiction of the courts of {governing_law} for resolution of any dispute arising out of or relating to this Agreement.
+
+9.2 Each Party irrevocably consents to the exclusive jurisdiction and venue of such courts and waives any objection to such jurisdiction or venue, including any objection that such courts are an inconvenient forum.
+
+9.3 To the extent permitted by applicable law, each Party waives any right to trial by jury in any proceeding arising out of or relating to this Agreement.
+
+10. OWNERSHIP, NO LICENCE AND NO WARRANTY
+
+10.1 All Confidential Information remains the property of the Disclosing Party. Nothing in this Agreement grants the Receiving Party any right, title, interest or licence, by implication, estoppel or otherwise, in or to any Confidential Information or any patent, copyright, trade secret, trademark or other intellectual property right of the Disclosing Party, except the limited right to use Confidential Information for the Purpose in accordance with this Agreement.
+
+10.2 All Confidential Information is provided "as is." The Disclosing Party makes no representation or warranty, express or implied, as to the accuracy or completeness of any Confidential Information, and shall have no liability arising from its use, except as may be set out in a definitive written agreement between the Parties.
+
+10.3 Neither Party is obliged by this Agreement to disclose any particular information, to continue discussions, or to enter into any further agreement or transaction. Any such obligation will arise only under a definitive written agreement signed by both Parties.
+
+11. GENERAL
+
+11.1 Personal Data. To the extent Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with all applicable data protection laws, and the Parties shall enter into any further agreement such laws require before such personal data is disclosed.
+
+11.2 Export Control. Each Party shall comply with all applicable export control and sanctions laws in relation to any Confidential Information it receives.
+
+11.3 No Publicity. Neither Party shall make any public announcement concerning the Purpose or this Agreement, or use the other Party's name or marks, without the other Party's prior written consent.
+
+11.4 Notices. All notices under this Agreement shall be in writing and delivered by hand, by recognized courier, or by email with confirmation of transmission, to the address of the receiving Party set out in its signature block below or such other address as a Party notifies in writing. A notice is effective on receipt.
+
+11.5 Assignment. Neither Party may assign, transfer or delegate this Agreement or any of its rights or obligations without the prior written consent of the other Party. Any purported assignment in breach of this Section is void. This Agreement binds and benefits the Parties and their permitted successors and assigns.
+
+11.6 Entire Agreement. This Agreement constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior or contemporaneous understandings, agreements and communications, whether written or oral, regarding that subject matter.
+
+11.7 Amendment and Waiver. This Agreement may be amended only by a written instrument signed by authorized representatives of both Parties. No failure or delay in exercising any right operates as a waiver of it, and no waiver is effective unless in writing.
+
+11.8 Severability. If any provision of this Agreement is held invalid or unenforceable, it shall be enforced to the maximum extent permissible and the remaining provisions shall continue in full force and effect.
+
+11.9 Relationship. Nothing in this Agreement creates any partnership, joint venture, agency or employment relationship between the Parties.
+
+11.10 Counterparts and Electronic Signature. This Agreement may be executed in counterparts, each of which is an original and all of which together constitute one instrument. Signatures delivered electronically or by electronic signature service are binding as originals.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement by their duly authorized representatives as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:
+Address for notices:                         Address for notices:

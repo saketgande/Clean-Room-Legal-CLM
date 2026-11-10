@@ -188,7 +188,7 @@ def test_update_validates_too(monkeypatch):
                         lambda key: _type(_field("contract_value", "number", required=True)))
 
     monkeypatch.setattr(service.IntakeService, "get_request", lambda self, *, user, request_id: request)
-    monkeypatch.setattr(service.IntakeService, "serialize_request", lambda self, r: {"ok": True})
+    monkeypatch.setattr(service.IntakeService, "serialize_request", lambda self, r, *a, **k: {"ok": True})
 
     class _Db:
         def commit(self):

@@ -1,0 +1,1 @@
+{"task": "T001", "agent": "db-engineer", "status": "done", "detail": "0074_template_sync: models + migration done; upgrade/downgrade/upgrade OK, ruff clean, 59+278 tests pass", "updated": "2026-10-15T07:43:01Z"}

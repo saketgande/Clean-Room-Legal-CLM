@@ -10,7 +10,7 @@ COMPOSE      ?= docker compose
 COMPOSE_PROD ?= docker compose -f docker-compose.yml
 
 .PHONY: help dev dev-build up up-build prod prod-build down stop restart logs ps \
-        migrate seed shell rebuild nuke local local-backend local-frontend
+        migrate seed shell test test-db test-db-reset rebuild nuke local local-backend local-frontend
 
 help:
 	@echo "WITH Docker — DEVELOPMENT (hot reload, source bind-mounted; default):"
@@ -29,6 +29,9 @@ help:
 	@echo "  make ps           show service status"
 	@echo "  make migrate      run Alembic migrations (alembic upgrade head)"
 	@echo "  make seed         seed the default admin user"
+	@echo "  make test-db      create the separate test database (legal_clm_test), migrate + seed it"
+	@echo "  make test-db-reset  drop and recreate the test database"
+	@echo "  make test         run the backend test suite against the test database"
 	@echo "  make shell        open a shell in the backend container"
 	@echo "  make nuke         stop & DELETE data volumes (full reset)"
 	@echo ""
@@ -82,6 +85,31 @@ seed:
 
 shell:
 	$(COMPOSE) exec backend bash
+
+# ---- Tests: always a separate database, never the dev one (see backend/tests/_testdb.py) ----
+TEST_DB     ?= legal_clm_test
+TEST_DB_URL ?= postgresql+psycopg://legal_clm:legal_clm@postgres:5432/$(TEST_DB)
+# The tests log in as admin@example.com / local-dev-password (see test_word_editor.py); the dev container's
+# backend/.env overrides the seed admin, so the test database always seeds these values explicitly.
+TEST_ADMIN_EMAIL    ?= admin@example.com
+TEST_ADMIN_PASSWORD ?= local-dev-password
+
+# Idempotent: creates the database when missing, then brings it to the current migration head and
+# seeds the dev admin (several tests log in as admin@example.com). Re-run after adding a migration.
+test-db:
+	@$(COMPOSE) exec -T postgres psql -U legal_clm -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$(TEST_DB)'" | grep -q 1 \
+	  || $(COMPOSE) exec -T postgres psql -U legal_clm -d postgres -c "CREATE DATABASE $(TEST_DB)"
+	$(COMPOSE) exec -T -e DATABASE_URL=$(TEST_DB_URL) backend alembic upgrade head
+	$(COMPOSE) exec -T -e DATABASE_URL=$(TEST_DB_URL) -e ENVIRONMENT=test \
+	  -e DEV_SEED_ADMIN_EMAIL=$(TEST_ADMIN_EMAIL) -e DEV_SEED_ADMIN_PASSWORD=$(TEST_ADMIN_PASSWORD) backend python -m app.devtools seed
+
+# Drops the test database (it accumulates rows across runs) and rebuilds it.
+test-db-reset:
+	$(COMPOSE) exec -T postgres psql -U legal_clm -d postgres -c "DROP DATABASE IF EXISTS $(TEST_DB) WITH (FORCE)"
+	$(MAKE) test-db
+
+test:
+	$(COMPOSE) exec backend python -m pytest -q
 
 rebuild: backend/.env
 	$(COMPOSE) build --no-cache

@@ -1,0 +1,1 @@
+{"task": "T001", "agent": "backend-dev", "status": "done", "detail": "form JSON + consultancy_dpa_cases.json (210 table + 73 field cases, 0 mismatches vs independent reference); correction applied: M14 'Enter India, ...', F4 only for plain ASCII numbers (1e3, .5, 5., +25, full-width, Arabic-Indic -> 'must be a number')", "updated": "2026-10-15T15:35:07Z"}

@@ -1,0 +1,212 @@
+<title>Request Page Refinements</title>
+<meta charset="utf-8">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two complete 1100px-wide app screens stacked, each scaled to fit. Same slate/indigo look as the app. */
+:root{
+  --bg:#eef0f5; --panel:#ffffff; --fg:#1b1f2e; --muted:#667085; --line:#e2e5ec; --side:#ffffff;
+  --brand:#4f46e5; --brand-fg:#ffffff; --brand-soft:#eceafd;
+  --ok:#15803d; --ok-soft:#e3f5e9; --warn:#b45309; --warn-soft:#fdf0d8; --bad:#b91c1c; --bad-soft:#fde8e8;
+  --font:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b0e1a; --panel:#171b2e; --fg:#e8eaf3; --muted:#9aa1b8; --line:#2a2f47; --side:#12162a;
+  --brand:#8b85ff; --brand-fg:#10122a; --brand-soft:#25285a;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#fbbf24; --warn-soft:#352a10; --bad:#f87171; --bad-soft:#3a1a1c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b0e1a; --panel:#171b2e; --fg:#e8eaf3; --muted:#9aa1b8; --line:#2a2f47; --side:#12162a;
+  --brand:#8b85ff; --brand-fg:#10122a; --brand-soft:#25285a;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#fbbf24; --warn-soft:#352a10; --bad:#f87171; --bad-soft:#3a1a1c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px}
+.page{max-width:1140px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:20px;font-weight:600;margin:0}
+.intro p{margin:4px 0 0;color:var(--muted)}
+.label{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.label b{font-size:16px}.label span{color:var(--muted);font-size:13px}
+.fit{width:100%;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+.scr{width:1100px;transform-origin:0 0;background:var(--bg);display:flex}
+.side{width:190px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+.side .logo{font-weight:600;font-size:15px;padding:2px 8px 12px}
+.side .grp{font-size:10px;letter-spacing:.08em;color:var(--muted);padding:10px 8px 3px;text-transform:uppercase}
+.side a{padding:6px 8px;border-radius:7px;color:var(--fg);text-decoration:none}
+.side a.on{background:var(--brand-soft);color:var(--brand);font-weight:500}
+.side .me{margin-top:auto;padding:8px;border-top:1px solid var(--line);font-size:12px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.topbar b{font-size:15px}.topbar span{color:var(--muted);font-size:12px;margin-left:8px}
+.btn{font:inherit;font-weight:500;font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.btn.pri{background:var(--brand);color:var(--brand-fg);border-color:var(--brand)}
+.btn.sm{padding:3px 10px;font-size:12px}
+.body{padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.crumb{font-size:12px;color:var(--muted)}
+.title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.title h2{font-size:20px;margin:0;font-weight:600}
+.title p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.pill{display:inline-block;font-size:11px;padding:1px 9px;border-radius:999px;font-weight:500;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)}.p-wait{background:var(--warn-soft);color:var(--warn)}.p-bad{background:var(--bad-soft);color:var(--bad)}.p-idle{background:var(--line);color:var(--muted)}.p-brand{background:var(--brand-soft);color:var(--brand)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card.hi{border-color:var(--brand)}
+.card h3{margin:0;font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.card p{margin:0}
+.sub{color:var(--muted);font-size:12.5px}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 16px;margin:0}
+.facts.c3{grid-template-columns:repeat(3,1fr)}
+.facts dt{font-size:11.5px;color:var(--muted)}
+.facts dd{margin:0;font-weight:500;font-size:13px}
+.tag{font-size:10px;font-family:var(--mono);padding:0 5px;border-radius:4px;background:var(--line);color:var(--muted);font-weight:400;margin-left:4px}
+.na{color:var(--warn)}
+.flag{border-radius:8px;padding:8px 12px;background:var(--warn-soft);border-left:3px solid var(--warn);font-size:12.5px}
+.issue{border-left:3px solid var(--bad);padding:1px 0 1px 10px;font-size:13px}
+.issue small{display:block;color:var(--muted);font-size:12px}
+textarea{width:100%;height:50px;font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:none}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start}
+.stk{display:flex;flex-direction:column;gap:14px;min-width:0}
+.stages{display:flex}
+.stages div{flex:1;font-size:11.5px;color:var(--muted);padding-top:6px;border-top:3px solid var(--line)}
+.stages div.d{border-color:var(--ok)}.stages div.c{border-color:var(--brand);color:var(--fg);font-weight:500}
+.stages b{display:block;font-size:12px;color:var(--fg);font-weight:500}
+.ppl{display:flex;gap:8px;align-items:center;font-size:12.5px}
+.av{width:24px;height:24px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:10px;font-weight:600;flex:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chips span{font-size:11.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+/* counterparty files */
+.cp{display:flex;flex-direction:column}
+.cp .name{font-size:14px;font-weight:600}
+.cp .stat{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.file{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px}
+.file .ic{width:22px;height:26px;border:1.5px solid var(--muted);border-radius:3px;flex:none;margin-top:1px;position:relative}
+.file .ic:after{content:"";position:absolute;left:3px;right:3px;top:7px;height:1.5px;background:var(--muted);box-shadow:0 4px 0 var(--muted),0 8px 0 var(--muted)}
+.file a{color:var(--brand);font-weight:500;text-decoration:none;display:block;overflow-wrap:anywhere}
+.file small{color:var(--muted);font-size:11.5px;display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}
+.more{font-size:12px;color:var(--brand);padding-top:6px}
+/* real activity */
+.act{display:flex;flex-direction:column}
+.day{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 0 4px}
+.ev{display:flex;gap:10px;padding:5px 0;font-size:13px;position:relative}
+.ev i{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none;margin-top:6px;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
+.ev i.ai{background:var(--brand)}.ev i.ok{background:var(--ok)}.ev i.st{background:var(--warn)}
+.ev small{color:var(--muted);font-size:11.5px;margin-left:auto;white-space:nowrap}
+.ev .who{color:var(--muted);font-size:12px}
+/* S1 compact steps */
+.st1{display:flex;flex-direction:column}
+.st1 .s{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12.5px;border-top:1px solid var(--line)}
+.st1 .s:first-child{border-top:0}
+.dot{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:9px;flex:none;background:var(--line);color:var(--muted)}
+.dot.d{background:var(--ok);color:var(--panel)}.dot.c{background:var(--brand);color:var(--brand-fg);box-shadow:0 0 0 3px var(--brand-soft)}
+.st1 .s.c{font-weight:500}
+.st1 .s em{font-style:normal;color:var(--muted);font-size:11.5px;margin-left:auto;text-align:right}
+.links{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--brand);padding-top:4px}
+/* S2 workflow card */
+.wf{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.wf .w{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.wf .w b{font-weight:500;font-size:12.5px}
+.wf .w small{color:var(--muted)}
+.wf .w.d{background:var(--ok-soft);border-color:transparent}
+.wf .w.c{border-color:var(--brand);background:var(--brand-soft)}
+.wf .w.c .btn{margin-top:4px;align-self:flex-start}
+</style>
+
+<div class="page">
+  <div class="intro">
+    <h1>Request page: your three fixes, two ways</h1>
+    <p>Both screens use real data from REQ-7705: the six real Initech contracts and the real events from its history. They differ only in where the Steps go. Scroll down to compare.</p>
+  </div>
+  <div id="slots"></div>
+</div>
+
+<script>
+const sidebar = `
+<div class="side"><div class="logo">Aegis</div>
+<div class="grp">Workspace</div><a class="on">Legal Intake</a><a>My Work</a><a>Notifications</a><a>Contracts</a><a>Search</a>
+<div class="grp">Intelligence</div><a>Ask Aegis</a><a>Contract Brain</a><a>Tabular Review</a><a>Playbooks</a>
+<div class="grp">Lifecycle</div><a>Approvals</a><a>Signatures</a><a>SLA</a><a>Notices</a><a>Renewals</a>
+<div class="me"><b>Local Admin</b><br><span style="color:var(--muted)">admin</span></div></div>`;
+const topbar = `<div class="topbar"><div><b>Legal Intake</b><span>one front door, every request lands here</span></div><div class="row"><span style="margin:0">58 open · 57 overdue</span><button class="btn pri">New request</button></div></div>`;
+const head = `<div class="crumb">← Legal Intake / REQ-7705</div>
+<div class="title"><div><h2>Today_14_test</h2><p>REQ-7705 · raised by Local Admin on 14 Oct 2026 · owner Dana Member</p></div>
+<div class="row"><span class="pill p-bad">High risk</span><span class="pill p-bad">Overdue</span></div></div>
+<div class="stages"><div class="d"><b>Intake</b>4 of 4 done</div><div class="d"><b>Drafting</b>1 of 1 done</div><div class="d"><b>Review</b>2 of 2 done</div><div class="c"><b>Approval</b>waiting · Legal Approval</div><div><b>Signature</b>0 of 3</div><div><b>Active</b>0 of 3</div><div><b>Closed</b>0 of 2</div></div>
+<div class="flag" style="background:var(--warn-soft)">Approval · Legal Approval · step 4 of 6 · Awaiting sign-off · overdue</div>`;
+const approval = `<div class="card hi"><h3><span>Approval · General view</span></h3>
+<dl class="facts c3"><div><dt>Value</dt><dd class="na">Not available</dd></div><div><dt>Term</dt><dd>1 year from 23 Oct 2026<span class="tag">requester-stated</span></dd></div><div><dt>Overall risk</dt><dd>High<span class="tag">extracted</span></dd></div></dl>
+<div><div class="sub">Top issues</div><div style="font-weight:500;font-size:13px">high: The governing law and jurisdiction clause contains unfilled placeholders… <span class="tag">extracted</span></div></div>
+<p class="sub">Waiting on EY-Dev legal approval team</p></div>`;
+const asked = `<div class="card"><h3><span>What was asked</span><span class="tag">from the form</span></h3>
+<dl class="facts"><div><dt>Counterparty</dt><dd>Initech Software Ltd</dd></div><div><dt>Type</dt><dd>NDA</dd></div><div><dt>Term</dt><dd>23 Oct 2026 · 1 year</dd></div><div><dt>Priority</dt><dd>Medium</dd></div></dl>
+<p>The Commercial team at Aegis Pharma Ltd wants a standard mutual NDA with Initech Software Ltd, using our own template, 1-year term from 23 Oct 2026, Indian law, no personal data.</p></div>`;
+const risk = `<div class="card"><h3><span>AI risk review</span><span>1 high · 0 medium · 0 low</span></h3>
+<div class="issue"><b>High · Governing law and jurisdiction</b><small>The clause still has blank placeholders, so no governing law or forum has been chosen. Fix on file: governed by the laws of India, courts of India.</small></div></div>`;
+const comments = `<div class="card"><h3><span>Comments and questions</span></h3><p class="sub">No comments yet.</p><textarea placeholder="Add a comment or question…"></textarea></div>`;
+const activity = `<div class="card"><h3><span>Activity</span><span>from this request and its contract</span></h3><div class="act">
+<div class="day">14 Oct</div>
+<div class="ev"><i></i><span>Request filed · New agreement · NDA <span class="who">by Local Admin</span></span><small>14:38</small></div>
+<div class="ev"><i class="ai"></i><span>AI triage complete</span><small>14:38</small></div>
+<div class="ev"><i></i><span>Workflow started · NDA — standard</span><small>14:38</small></div>
+<div class="ev"><i></i><span>Drafted the Mutual NDA</span><small>14:39</small></div>
+<div class="ev"><i class="st"></i><span>Stage changed to Review</span><small>14:39</small></div>
+<div class="ev"><i class="ai"></i><span>AI review complete · 1 high issue found</span><small>14:41</small></div>
+<div class="ev"><i class="ai"></i><span>AI drafted a suggested change for 1 playbook issue</span><small>14:42</small></div>
+<div class="ev"><i class="ok"></i><span>Legal review done <span class="who">by Dana Member</span></span><small>15:20</small></div>
+<div class="ev"><i class="st"></i><span>Stage changed to Approval · waiting on EY-Dev legal approval team</span><small>15:21</small></div>
+</div><div class="more">Show system details (AI jobs, ingestion)</div></div>`;
+const counter = `<div class="card cp"><h3><span>Counterparty</span></h3>
+<div class="name">Initech Software Ltd</div>
+<div class="stat">5 other contracts · 2 active · ₹90 lakh in force · 7 earlier requests</div>
+<div class="file"><span class="ic"></span><div><a>Mutual NDA — Initech Software Ltd</a><small><span class="pill p-ok">Active</span>NDA · 9 Oct</small></div></div>
+<div class="file"><span class="ic"></span><div><a>Statement of Work — Initech Software Ltd</a><small><span class="pill p-wait">Review</span>SOW · ₹10,00,000 · 7 Oct</small></div></div>
+<div class="file"><span class="ic"></span><div><a>Mutual NDA — Initech Software Ltd</a><small><span class="pill p-wait">Review</span>NDA · 1 Oct</small></div></div>
+<div class="file"><span class="ic"></span><div><a>Initech — Master Services Agreement (their paper)</a><small><span class="pill p-brand">Signature</span>MSA · ₹80,00,000 · 29 Sep</small></div></div>
+<div class="file"><span class="ic"></span><div><a>Mutual NDA — Initech Software Ltd</a><small><span class="pill p-ok">Active</span>NDA · 29 Sep</small></div></div>
+<div class="more">Earlier requests (7) ▾  ·  REQ-7701, REQ-6464, REQ-5890 …</div>
+<p class="sub">You see only the contracts you have access to.</p></div>`;
+const people = `<div class="card"><h3><span>Owner and people</span></h3>
+<div class="ppl"><div class="av">DM</div><div>Dana Member<br><span class="sub">owner</span></div><button class="btn sm" style="margin-left:auto">Reassign</button></div>
+<div class="ppl"><div class="av">LA</div><div>Local Admin<br><span class="sub">requester · Commercial</span></div></div></div>`;
+const docs = `<div class="card"><h3><span>Documents</span></h3><p class="sub">No documents attached.</p><button class="btn sm" style="align-self:flex-start">Open in CLM editor →</button></div>`;
+const ask = `<div class="card"><h3><span>Ask Aegis</span></h3><div class="chips"><span>What are the key risks here?</span><span>What obligations does this create?</span><span>How does this compare to our standard terms?</span></div></div>`;
+const stepsCompact = `<div class="card"><h3><span>Steps</span><span>3 of 6 done</span></h3><div class="st1">
+<div class="s"><span class="dot d">✓</span>Prepare draft<em>done</em></div>
+<div class="s"><span class="dot d">✓</span>AI review<em>done · 1 high</em></div>
+<div class="s"><span class="dot d">✓</span>Legal review<em>Dana Member</em></div>
+<div class="s c"><span class="dot c">4</span>Legal approval<em>EY-Dev legal approval team<br><span style="color:var(--bad)">overdue 2 days</span></em></div>
+<div class="s"><span class="dot">5</span>Signature<em>next</em></div>
+<div class="s"><span class="dot">6</span>Activate and track<em>next</em></div></div>
+<div class="row"><button class="btn sm">Check approval status</button></div>
+<div class="links"><span>Review result</span><span>Approval chain</span><span>Hand-off trace</span><span>Send back…</span></div></div>`;
+const workflowWide = `<div class="card"><h3><span>Workflow · NDA — standard</span><span>3 of 6 steps done</span></h3><div class="wf">
+<div class="w d"><b>✓ Prepare draft</b><small>Done</small></div>
+<div class="w d"><b>✓ AI review</b><small>Done · 1 high issue</small></div>
+<div class="w d"><b>✓ Legal review</b><small>Dana Member</small></div>
+<div class="w c"><b>4 · Legal approval</b><small>With EY-Dev legal approval team</small><small style="color:var(--bad)">Overdue 2 days</small><button class="btn sm">Check approval status</button></div>
+<div class="w"><b>5 · Signature</b><small>3 steps</small></div>
+<div class="w"><b>6 · Activate and track</b><small>3 steps</small></div></div>
+<div class="links"><span>Review result</span><span>Approval chain</span><span>Agent hand-off trace</span><span>Send back for rework…</span></div></div>`;
+
+const S1 = `${sidebar}<div class="main">${topbar}<div class="body">${head}
+<div class="cols"><div class="stk">${approval}${asked}${risk}${comments}${activity}</div>
+<div class="stk">${counter}${people}${docs}${stepsCompact}${ask}</div></div></div></div>`;
+const S2 = `${sidebar}<div class="main">${topbar}<div class="body">${head}
+<div class="cols"><div class="stk">${approval}${asked}${risk}${workflowWide}${activity}${comments}</div>
+<div class="stk">${counter}${people}${docs}${ask}</div></div></div></div>`;
+
+const defs = [
+ ["Option 1 · Compact steps in the side column","One short line per step, with only the current step highlighted. Review result, Approval chain, Hand-off trace and Send back become small links, not a tall form. Counterparty shows the name and its real contracts as clickable files. Activity shows the real events, grouped by day."],
+ ["Option 2 · Workflow moves under the main content","The side column stops carrying the Steps. The workflow becomes one wide card in the main column: six step tiles in a row, the current one highlighted with its Check status button. The side column is short and calm: counterparty files, people, documents, Ask Aegis."]
+];
+const htmls=[S1,S2], slots=document.getElementById("slots"), fits=[];
+defs.forEach((d,i)=>{
+  const w=document.createElement("div"); w.style.marginBottom="28px";
+  w.innerHTML=`<div class="label"><b>${d[0]}</b><span>${d[1]}</span></div><div class="fit"><div class="scr">${htmls[i]}</div></div>`;
+  slots.appendChild(w); fits.push(w.querySelector(".fit"));
+});
+function fit(){
+  fits.forEach(f=>{
+    const s=f.querySelector(".scr"); s.style.transform="none"; f.style.height="auto";
+    const k=Math.min(1,f.clientWidth/1100); s.style.transform=`scale(${k})`; f.style.height=(s.offsetHeight*k)+"px";
+  });
+}
+addEventListener("resize",fit); fit();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(fit);
+</script>

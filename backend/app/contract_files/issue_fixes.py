@@ -33,6 +33,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.outcomes import Outcome, failure_from_exception, failure_payload
 from app.auth.models import User
 from app.contract_files import redline_edits
 from app.contract_files.models import ContractEdit
@@ -390,7 +391,7 @@ async def run_issue_fix_job(db: Session, job: JobRun) -> None:
             except Exception as exc:
                 db.rollback()
                 logger.warning("drafting a fix for issue %s failed", deviation_id, exc_info=True)
-                outcome, reason = "failed", f"{exc.__class__.__name__}: {exc}"[:200]
+                outcome, reason = "failed", failure_from_exception(exc)["reason"]  # not str(exc): it can carry the contract's words
                 in_a_row += 1
         meta["done"] = index + 1
         if outcome in ("drafted", "no_change", "failed"):
@@ -428,8 +429,11 @@ def _save(db: Session, job: JobRun, meta: dict[str, Any], *, progress: int | Non
 def _finish(
     db: Session, job: JobRun, state: JobStatus, *, meta: dict[str, Any] | None = None, error: str | None = None
 ) -> None:
-    if meta is not None:
-        job.metadata_json = dict(meta)
+    metadata = dict(meta if meta is not None else job.metadata_json or {})
+    metadata.pop("failure", None)  # an earlier attempt's reason does not outlive a retry that worked
+    if state == JobStatus.FAILED:
+        metadata["failure"] = failure_payload(Outcome.INTERNAL, error, retryable=False)
+    job.metadata_json = metadata
     job.status = state
     job.progress = 100
     job.finished_at = utcnow()

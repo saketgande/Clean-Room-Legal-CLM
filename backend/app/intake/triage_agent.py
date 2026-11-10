@@ -20,6 +20,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.intake.agreement_forms import answer_text
 from app.intake.models import IntakeDocument, IntakeRequest
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,9 @@ def _prompt(request: IntakeRequest, catalog: list[dict], attachments: list | tup
         steps = " → ".join((c.get("steps") or [])[:4]) or "—"
         lines.append(f"- id={c['id']} · {c['name']}\n    when: {crit}\n    steps: {steps}\n    {c.get('description') or ''}")
     fv = request.field_values or {}
-    field_txt = "\n".join(f"  {k}: {v}" for k, v in fv.items() if not str(k).startswith("_")) or "  (none)"
+    form = fv.get("request_form")
+    field_txt = "\n".join(f"  {k}: {answer_text(form, k, v)}" for k, v in fv.items()
+                          if not str(k).startswith("_")) or "  (none)"
     lines += [
         "\nINTAKE REQUEST:",
         f"  Type: {request.type_label}",

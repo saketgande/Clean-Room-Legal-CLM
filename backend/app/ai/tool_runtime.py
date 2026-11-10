@@ -35,6 +35,7 @@ from app.ai.tool_registry import (
     CreateNoticeInput,
     CreateWorkflowInput,
     DecideApprovalInput,
+    DraftFromTemplateInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
@@ -96,6 +97,7 @@ from app.core.enums import (
     AssistantToolCallStatus,
     ContractLifecycleStage,
     ContractVersionSource,
+    ObligationStatus,
     ShareAccessMode,
     SignatureStatus,
     StorageBackend,
@@ -166,6 +168,23 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {tool_name}")
         validated_input = spec.input_model.model_validate(tool_input)
         validated_args = validated_input.model_dump(mode="json")
+        if tool_name == "create_intake_request":
+            from app.intake.chat_filing import refusal
+
+            # Before the confirmation card: the model reads this and asks the user, instead of filing a guess.
+            problem = refusal(**{k: validated_args.get(k) for k in (
+                "type_label", "subject", "description", "department", "counterparty", "estimated_value", "needed_by")})
+            from app.intake.chat_filing import new_party_problem
+
+            problem = problem or new_party_problem(
+                db, user, counterparty=validated_args.get("counterparty"),
+                jurisdiction=validated_args.get("counterparty_jurisdiction"), email=validated_args.get("counterparty_email"))
+            if problem:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
+        if tool_name == "generate_contract_docx" and not validated_args.get("user_chose_free_drafting"):
+            from app.intake.chat_filing import DRAFT_CHOICE_REFUSAL
+
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, DRAFT_CHOICE_REFUSAL)
         # A stage move is the same call only while the contract is in the same state.
         # The same words after it has moved again are a new request, so replaying the
         # first answer would claim a move that never happened. Planning it here also
@@ -287,6 +306,10 @@ class ToolRuntime:
         if prior is None:
             return None
         if prior.status == AssistantToolCallStatus.SUCCEEDED:
+            if spec.name == "extract_obligations":
+                # What the first call queued has since finished, failed or been cancelled: a repeat must be asked
+                # again (and hear "already read", "already running", or restart it), not be told "queued" a second time.
+                return None
             return prior.result or {}
         if prior.status == AssistantToolCallStatus.CONFIRMATION_REQUIRED:
             pending = db.scalar(
@@ -391,6 +414,8 @@ class ToolRuntime:
             return self._run_workflow(db, payload=payload, user=user)
         if tool_name == "generate_contract_docx":
             return await self._generate_contract_docx(db, payload=payload, user=user)
+        if tool_name == "draft_from_template":
+            return await self._draft_from_template(db, payload=payload, user=user)
         if tool_name == "edit_contract":
             return await self._edit_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "redraft_contract":
@@ -527,13 +552,33 @@ class ToolRuntime:
         return out
 
     def _create_intake_request(self, db: Session, *, payload: CreateIntakeRequestInput, user: User) -> dict[str, Any]:
+        from app.intake.chat_filing import (
+            canonical_label,
+            details_block,
+            known_fields,
+            register_lookup,
+        )
         from app.intake.schemas import RequestCreate
         from app.intake.service import IntakeService
 
+        party, _ = register_lookup(db, user, payload.counterparty)
+        if party is None and known_fields(counterparty=payload.counterparty, estimated_value=None):
+            from types import SimpleNamespace
+
+            from app.parties import service as parties
+
+            party = parties.create(db, actor=user, kind="counterparty", payload=SimpleNamespace(
+                name=payload.counterparty, jurisdiction=payload.counterparty_jurisdiction,
+                contact_email=payload.counterparty_email, address=None))
         rc = RequestCreate(
-            type_label=payload.type_label, subject=payload.subject,
-            description=payload.description or "", department=payload.department,
-            priority=payload.priority, field_values=payload.field_values, source="copilot",
+            type_label=canonical_label(payload.type_label) or payload.type_label, subject=payload.subject,
+            description=(payload.description or "") + details_block(
+                counterparty=payload.counterparty, estimated_value=payload.estimated_value, needed_by=payload.needed_by),
+            department=payload.department,
+            priority=payload.priority, source="copilot",
+            field_values={**known_fields(counterparty=payload.counterparty, estimated_value=payload.estimated_value),
+                          **({"counterparty_id": party["id"]} if party else {}),
+                          **(payload.field_values or {})} or None,
         )
         result = IntakeService(db).create_request(actor=user, payload=rc)
         at = result.get("ai_triage") or {}
@@ -743,7 +788,7 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
         # Same gate as POST /obligations/{id}/complete: a walled contract's duties
         # can't be closed from chat.
-        ContractService(db).get_contract_for_user(contract_id=ob.contract_id, user=user)
+        ContractService(db).get_contract_for_user(contract_id=ob.contract_id, user=user, edit=True)
         from app.obligations.service import ObligationsService
 
         # Through the service (it commits), not complete_and_schedule_next, so chat
@@ -1094,22 +1139,27 @@ class ToolRuntime:
                     "reason": "Your approval is pending",
                     "due_date": a.due_at.date().isoformat() if a.due_at else None, "urgency": _urgency(d),
                 })
-        # Obligations due within the window and still open
+        # Obligations due within the window or already overdue, and not closed. The daily sweep moves a
+        # row open -> due_soon -> overdue, so an "open only" list dropped each one the day it turned urgent.
+        # Not those of a closed or archived contract: it is no longer tracked, and the sweep froze them.
+        from app.obligations.service import live_contract_ids
+
         for o in db.scalars(
             select(Obligation).where(
                 Obligation.org_id == org,
                 Obligation.contract_id.in_(accessible_ids),
+                Obligation.contract_id.in_(live_contract_ids()),
                 Obligation.deleted_at.is_(None),
-                Obligation.due_date.isnot(None),
+                Obligation.due_date <= window_end,
+                Obligation.status.not_in((ObligationStatus.COMPLETED, ObligationStatus.CANCELLED)),
             )
         ).all():
-            if o.due_date and today <= o.due_date <= window_end and str(o.status or "").lower() in ("open", "in_progress", "pending"):
-                d = (o.due_date - today).days
-                items.append({
-                    "contract_id": o.contract_id, "title": _title(o.contract_id),
-                    "reason": f"Obligation due: {(o.description or '')[:80]}",
-                    "due_date": o.due_date.isoformat(), "urgency": _urgency(d),
-                })
+            d = (o.due_date - today).days
+            items.append({
+                "contract_id": o.contract_id, "title": _title(o.contract_id),
+                "reason": f"Obligation {'overdue' if d < 0 else 'due'}: {(o.description or '')[:80]}",
+                "due_date": o.due_date.isoformat(), "urgency": _urgency(d),
+            })
         # Signatures still in flight (defensive — skip silently if the model shape differs)
         try:
             for s in db.scalars(
@@ -1125,6 +1175,14 @@ class ToolRuntime:
                     })
         except Exception:  # pragma: no cover - never let one source break the worklist
             logging.getLogger(__name__).debug("worklist source failed; skipping", exc_info=True)
+        # Obligations nobody has a date for, and Active contracts whose obligations were never read or failed to read:
+        # silence on these read as "nothing needs me", which is exactly what the page's red row and tile say is not so.
+        # Last, because they are one per contract and tie with signatures on urgency and date: the sort is stable and
+        # the cut at 40 keeps insertion order, so earlier they would push every "Awaiting signature" off the list.
+        from app.obligations.assistant import date_gap_items, unread_items
+
+        items.extend(date_gap_items(db, user))
+        items.extend(unread_items(db, user))
         rank = {"overdue": 0, "high": 1, "medium": 2}
         items.sort(key=lambda x: (rank.get(x["urgency"], 3), x["due_date"] or "9999-12-31"))
         return {"window_days": payload.window_days, "count": len(items), "total": len(items), "items": items[:40]}
@@ -1248,16 +1306,18 @@ class ToolRuntime:
         return out
 
     def _list_obligations(self, db: Session, *, payload: ListObligationsInput, user: User) -> dict[str, Any]:
-        query = (
-            select(Obligation)
-            .join(Contract, Contract.id == Obligation.contract_id)
-            .where(
-                Obligation.org_id == user.org_id,
-                Obligation.deleted_at.is_(None),
-                Contract.deleted_at.is_(None),
-                accessible_contract_filter(user),
-            )
+        from app.obligations.assistant import (
+            UNREAD_LISTED,
+            date_note,
+            obligations_note,
+            unread_contracts,
         )
+        from app.obligations.dates import date_state
+        from app.obligations.service import ObligationsService, visible_obligations
+
+        # The same obligations the Obligations page lists (a closed or archived contract is no longer tracked), so the
+        # chat and the page cannot give two answers.
+        query = visible_obligations(user)
         if payload.due_within_days is not None:
             today = utcnow().date()
             query = query.where(
@@ -1265,36 +1325,36 @@ class ToolRuntime:
                 Obligation.due_date >= today,
                 Obligation.due_date <= today + timedelta(days=payload.due_within_days),
             )
-        obligations = db.scalars(query.order_by(Obligation.due_date.asc())).all()
-        contract_ids = {o.contract_id for o in obligations}
-        contracts = {
-            c.id: c
-            for c in db.scalars(
-                select(Contract).where(
-                    Contract.org_id == user.org_id,
-                    Contract.id.in_(contract_ids),
-                    accessible_contract_filter(user),
-                )
-            ).all()
-        } if contract_ids else {}
+        rows = db.execute(
+            query.order_by(Obligation.due_date.asc().nulls_last(), Obligation.contract_id, Obligation.created_at, Obligation.id)
+        ).all()
 
-        def _row(o: Obligation) -> dict[str, Any]:
-            c = contracts.get(o.contract_id)
+        def _row(o: Obligation, title: str | None, counterparty: str | None) -> dict[str, Any]:
             return {
                 "obligation_id": o.id, "description": (o.description or "")[:160],
-                "contract_id": o.contract_id, "contract_title": c.title if c else None,
-                "counterparty": c.counterparty_name if c else None,
+                "contract_id": o.contract_id, "contract_title": title, "counterparty": counterparty,
                 "due_date": o.due_date.isoformat() if o.due_date else None,
                 "status": o.status, "type": o.obligation_type,
+                # No date is not "not due": each row says which kind of no-date it is, and why.
+                "date_state": date_state(o), "date_note": date_note(o),
             }
 
-        items = [_row(o) for o in obligations]
+        items = [_row(o, title, counterparty) for o, title, counterparty in rows]
+        # Over the whole portfolio, not just the rows above (a "due in 30 days" list leaves out every undated one), and
+        # the Active contracts whose obligations are not read: an empty list for those is "unknown", not "none".
+        portfolio = ObligationsService(db).summary(user=user)
+        unread = unread_contracts(db, user)
+        extra = {
+            "dates": portfolio["dates"], "needs_date": portfolio["needs_date"],
+            "unread_contracts": unread[:UNREAD_LISTED], "unread_total": len(unread),
+            "summary": obligations_note(summary=portfolio, windowed=payload.due_within_days is not None, unread=unread),
+        }
         if payload.group_by == "counterparty":
             groups: dict[str, list] = {}
             for it in items:
                 groups.setdefault(it["counterparty"] or "Unspecified", []).append(it)
-            return {"due_within_days": payload.due_within_days, "count": len(items), "grouped_by": "counterparty", "groups": groups}
-        return {"due_within_days": payload.due_within_days, "count": len(items), "obligations": items}
+            return {"due_within_days": payload.due_within_days, "count": len(items), "grouped_by": "counterparty", "groups": groups, **extra}
+        return {"due_within_days": payload.due_within_days, "count": len(items), "obligations": items, **extra}
 
     def _get_contract_status(
         self,
@@ -1460,53 +1520,79 @@ class ToolRuntime:
         db.flush()
         return {"workflow_run_id": run.id, "status": run.status, **output}
 
+    async def _draft_from_template(self, db: Session, *, payload: DraftFromTemplateInput, user: User) -> dict[str, Any]:
+        """Our own paper: the org's saved template wording (else the shipped default), filled and saved
+        as a new contract with no request. Anything the user did not give falls back to the template's
+        playbook position, so the drafter lists what was assumed."""
+        from app.drafting_templates.service import TEMPLATES, current_wording, get_type
+        from app.intake.drafting import render_document
+        from app.organizations.models import Organization
+
+        org = db.get(Organization, user.org_id)
+        body = current_wording(db, user.org_id, get_type(db, user.org_id, payload.doc_type)).body
+        text = render_document(payload.doc_type, company=(org.name if org else "") or "Our Company",
+                               counterparty=payload.counterparty,
+                               effective=payload.effective_date or datetime.now(UTC).date().isoformat(),
+                               fields=payload.fields, body=body)
+        title = f"{TEMPLATES[payload.doc_type]['name']} — {payload.counterparty}"
+        body_text, content = _render_structured_contract_docx(title=title, sections=[("", text)])
+        assumptions = [(f"Drafted from the organization's {payload.doc_type} template; anything not given above "
+                        "uses the template's default position.")]
+        return await self._generate_contract_docx(
+            db, payload=GenerateContractInput(title=title, instructions="", user_chose_free_drafting=True),
+            user=user, prebuilt=(body_text, content, assumptions))
+
     async def _generate_contract_docx(
         self,
         db: Session,
         *,
         payload: GenerateContractInput,
         user: User,
+        prebuilt: tuple[str, bytes, list] | None = None,
     ) -> dict[str, Any]:
         # Draft the real contract with the AI skill. Fall back to a structured
         # skeleton only if the skill is unavailable or returns nothing usable,
         # so the tool never hard-fails mid-conversation.
-        drafted = None
-        try:
-            from app.ai.controller import ai_controller
+        if prebuilt is not None:
+            body_text, content, assumptions = prebuilt
+        else:
+            drafted = None
+            try:
+                from app.ai.controller import ai_controller
 
-            drafted = await ai_controller.run_structured_skill(
-                db,
-                skill_name="contract_docx_generation",
-                org_id=user.org_id,
-                created_by_user_id=user.id,
-                input_payload={
-                    "title": payload.title,
-                    "instructions": payload.instructions,
-                },
-                commit=False,
+                drafted = await ai_controller.run_structured_skill(
+                    db,
+                    skill_name="contract_docx_generation",
+                    org_id=user.org_id,
+                    created_by_user_id=user.id,
+                    input_payload={
+                        "title": payload.title,
+                        "instructions": payload.instructions,
+                    },
+                    commit=False,
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "contract_docx_generation skill failed; using skeleton", exc_info=True
+                )
+            if drafted is None or not getattr(drafted, "sections", None):
+                # The model returned no sections (commonly: the request is too
+                # large for one pass). Fail loudly instead of silently emitting a
+                # placeholder skeleton that looks like a real contract and then
+                # gets redlined/accepted.
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "The drafting model returned no contract sections. This usually "
+                    "means the request was too broad for a single pass — try again "
+                    "or split it into a tighter scope (fewer/known sections).",
+                )
+            body_text, content = _render_structured_contract_docx(
+                title=getattr(drafted, "title", None) or payload.title,
+                sections=[(s.heading, s.body) for s in drafted.sections],
             )
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "contract_docx_generation skill failed; using skeleton", exc_info=True
-            )
-        if drafted is None or not getattr(drafted, "sections", None):
-            # The model returned no sections (commonly: the request is too
-            # large for one pass). Fail loudly instead of silently emitting a
-            # placeholder skeleton that looks like a real contract and then
-            # gets redlined/accepted.
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                "The drafting model returned no contract sections. This usually "
-                "means the request was too broad for a single pass — try again "
-                "or split it into a tighter scope (fewer/known sections).",
-            )
-        body_text, content = _render_structured_contract_docx(
-            title=getattr(drafted, "title", None) or payload.title,
-            sections=[(s.heading, s.body) for s in drafted.sections],
-        )
-        # Not in the contract text (see _render_structured_contract_docx); the
-        # drafter sees them in the tool result, the timeline keeps them.
-        assumptions = _drafting_assumptions(drafted)
+            # Not in the contract text (see _render_structured_contract_docx); the
+            # drafter sees them in the tool result, the timeline keeps them.
+            assumptions = _drafting_assumptions(drafted)
         storage_object = _store_docx(
             db,
             org_id=user.org_id,
@@ -2421,24 +2507,39 @@ class ToolRuntime:
         session_id: str,
     ) -> dict[str, Any]:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
-        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
-        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
-        if version is None or snapshot is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no extractable authoritative version")
-        jobs_service = JobsService(db)
-        job = jobs_service.create_job(
-            org_id=user.org_id,
-            job_type="obligation_extraction",
-            resource_type="contract",
-            resource_id=contract.id,
-            created_by_user_id=user.id,
-            idempotency_key=f"obligation_extraction:{version.id}:{snapshot.id}:assistant",
-            metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
-        )
+        # Starting an extraction rewrites the contract's obligations: a reader of it may not.
+        ContractService(db).get_contract_for_user(contract_id=contract.id, user=user, edit=True)
+        from app.obligations.service import ObligationsService
+
+        # The same decision the Retry button makes: a contract already read answers 409 (the reply must not say
+        # "queued" for nothing), a job already on its way is not stacked, and one that ended badly is restarted.
+        try:
+            job, _existed, in_flight = ObligationsService(db).extraction_job(contract=contract, user=user, suffix="assistant")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_409_CONFLICT:
+                raise
+            # Raised here, the run would end FAILED with the model never hearing why (this tool always runs after the
+            # user confirms): "already read", "cancelled a moment ago" and "no readable version" are answers.
+            return {
+                "status": "not_started", "contract_id": contract.id, "reason": exc.detail,
+                "summary": f"Nothing was queued: {exc.detail} Say so; do not say an extraction was started.",
+            }
+        if in_flight:
+            return {
+                "status": "already_running", "contract_id": contract.id, "job_id": job.id, "job_type": job.job_type,
+                "summary": "Nothing new was queued: the obligations are already being read. Say so, and to check again shortly.",
+            }
+        job_id = job.id
+        # Commit first so the new row is visible when the worker picks the message up (as _generate_contract_docx and
+        # the Retry button do). A worker that wins the race raises "Job not found", the row then commits QUEUED with a
+        # task id, and every later request sees a job "already running" that will never start, for two hours.
+        db.commit()
+        JobsService(db).dispatch_job(job=job)
         db.flush()
-        jobs_service.dispatch_job(job=job)
-        db.flush()
-        return {"status": "queued", "contract_id": contract.id, "job_id": job.id, "job_type": job.job_type}
+        return {
+            "status": "queued", "contract_id": contract.id, "job_id": job_id, "job_type": "obligation_extraction",
+            "summary": "Obligation extraction was queued. It takes a minute or two: do not say the obligations are ready.",
+        }
 
     def _create_tabular_review(
         self,

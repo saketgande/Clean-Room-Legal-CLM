@@ -46,7 +46,7 @@ type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm",
+    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(24_26_34/0.12)]",
   secondary:
     "bg-slate-900 text-slate-50 hover:bg-slate-800 active:bg-slate-950",
   outline:
@@ -77,7 +77,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
+        "ui-btn inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
         buttonVariants[variant],
         buttonSizes[size],
         className,
@@ -99,7 +99,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-xl border border-slate-200 bg-slate-100 shadow-card",
+        "ui-card rounded-xl border border-slate-200 bg-slate-100 shadow-card",
         className,
       )}
       {...props}
@@ -114,7 +114,7 @@ export function CardHeader({
   return (
     <div
       className={cn(
-        "flex items-center justify-between border-b border-slate-200 px-5 py-4",
+        "ui-card-head flex items-center justify-between border-b border-slate-200 px-5 py-4",
         className,
       )}
       {...props}
@@ -173,7 +173,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.04em]",
+        "ui-badge inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-[0.01em]",
         badgeTones[tone],
         className,
       )}
@@ -191,7 +191,7 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      "h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35 disabled:bg-slate-50 disabled:text-slate-400",
+      "ui-input h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35 disabled:bg-slate-50 disabled:text-slate-400",
       className,
     )}
     {...props}
@@ -206,7 +206,7 @@ export const Textarea = forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
+      "ui-input w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
       className,
     )}
     {...props}
@@ -221,7 +221,7 @@ export const Select = forwardRef<
   <select
     ref={ref}
     className={cn(
-      "h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
+      "ui-input h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
       className,
     )}
     {...props}
@@ -291,7 +291,7 @@ export function Table({
   ...props
 }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="overflow-x-auto">
+    <div className="ui-table-wrap overflow-x-auto">
       <table
         className={cn("w-full border-collapse text-[13px]", className)}
         {...props}
@@ -311,7 +311,7 @@ export function TH({
   return (
     <th
       className={cn(
-        "border-b border-slate-300 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.04em] text-slate-500",
+        "ui-th border-b border-slate-200 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500",
         className,
       )}
       {...props}
@@ -326,7 +326,7 @@ export function TR({
   return (
     <tr
       className={cn(
-        "border-b border-slate-200 last:border-0 hover:bg-slate-100 transition-colors",
+        "ui-tr border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors",
         className,
       )}
       {...props}
@@ -817,7 +817,7 @@ export function StatCard({
     cyan: "bg-info-subtle text-info",
   };
   return (
-    <Card className="p-4">
+    <Card className="ui-stat p-4">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
@@ -875,7 +875,7 @@ export function Tabs({
       role="tablist"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className="flex gap-1 border-b border-slate-200"
+      className="ui-tabs flex gap-1 border-b border-slate-200"
     >
       {tabs.map((t) => (
         <button
@@ -886,7 +886,7 @@ export function Tabs({
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           className={cn(
-            "relative -mb-px px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35",
+            "ui-tab relative -mb-px px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35",
             active === t.id
               ? "border-b-2 border-brand-600 text-slate-900"
               : "border-b-2 border-transparent text-slate-500 hover:text-slate-800",

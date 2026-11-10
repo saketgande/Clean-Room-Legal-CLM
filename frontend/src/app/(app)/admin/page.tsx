@@ -18,6 +18,10 @@ import {
   Trash2,
   UserPlus,
   X,
+  Contact,
+  KeyRound,
+  Users,
+  UsersRound,
 } from "lucide-react";
 import {
   adminApi,
@@ -56,6 +60,10 @@ import {
 } from "@/components/ui";
 import { cn, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { RolesView, TeamsView } from "./_roles-teams";
+import { AdBtn, AdminShell, Empty, Pill, Search, SecHead, Seg, Stats, type NavGroup } from "./_admin-kit";
+import { Switch, Tile } from "./_atoms";
+import { AssignUI, PeopleList, RoleEditorUI, TeamEditorUI } from "./_roles-teams-forms";
 import { can } from "@/lib/intake";
 import { useToast } from "@/components/toast";
 import type {
@@ -89,6 +97,33 @@ const AUTHORITY_ACTIONS = [
 ];
 const RISK_BANDS = ["low", "medium", "high", "critical"];
 
+const NAV: NavGroup[] = [
+  {
+    title: "People & access",
+    items: [
+      { id: "users", label: "Users & Access", hint: "Who is in, invitations and approvals", icon: Users },
+      { id: "roles", label: "Roles & Permissions", hint: "What each role may do", icon: KeyRound },
+      { id: "teams", label: "Teams", hint: "Who does the work", icon: UsersRound },
+      { id: "authority", label: "Authority", hint: "How much someone may approve or sign", icon: Scale },
+      { id: "walls", label: "Ethical Walls", hint: "Conflict-of-interest screens", icon: ShieldAlert },
+    ],
+  },
+  {
+    title: "Organization",
+    items: [
+      { id: "organization", label: "Organization", hint: "Name and defaults", icon: Building2 },
+      { id: "parties", label: "Entities & counterparties", hint: "Our entities and the other side", icon: Contact },
+    ],
+  },
+  {
+    title: "System",
+    items: [
+      { id: "settings", label: "Settings", hint: "Organization-level values", icon: SettingsIcon },
+      { id: "integrations", label: "Integrations", hint: "Connected services and environment", icon: Plug },
+    ],
+  },
+];
+
 export default function AdminPage() {
   const [tab, setTab] = useState("organization");
   const { user } = useAuth();
@@ -107,26 +142,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-4">
-      <PageHeader
-        title="Admin"
-        description="Manage your organization, members, settings and integrations."
-      />
-      <Tabs
-        tabs={[
-          { id: "organization", label: "Organization" },
-          { id: "users", label: "Users & Access" },
-          { id: "roles", label: "Roles & Permissions" },
-          { id: "teams", label: "Teams" },
-          { id: "parties", label: "Entities & counterparties" },
-          { id: "walls", label: "Ethical Walls" },
-          { id: "authority", label: "Authority" },
-          { id: "settings", label: "Settings" },
-          { id: "integrations", label: "Integrations" },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+    <AdminShell groups={NAV} active={tab} onChange={setTab}>
       {tab === "organization" && <OrganizationTab />}
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
@@ -136,7 +152,7 @@ export default function AdminPage() {
       {tab === "authority" && <AuthorityTab />}
       {tab === "settings" && <SettingsTab />}
       {tab === "integrations" && <IntegrationsTab />}
-    </div>
+    </AdminShell>
   );
 }
 
@@ -149,6 +165,7 @@ function OrganizationTab() {
     queryFn: orgApi.current,
   });
 
+  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
   const [name, setName] = useState("");
   const [defaultRole, setDefaultRole] = useState("");
   const [busy, setBusy] = useState(false);
@@ -175,49 +192,65 @@ function OrganizationTab() {
     }
   }
 
-  if (isLoading) return <CenterSpinner label="Loading organization…" />;
+  if (isLoading) return <div className="ad-load"><span className="ad-spin" /></div>;
   if (error) return <ErrorState error={error} />;
 
+  const dirty = !!data && (name.trim() !== data.name || defaultRole.trim() !== data.default_role_name);
   return (
-    <Card className="max-w-2xl">
-      <CardHeader>
-        <CardTitle>Organization details</CardTitle>
-        <Building2 className="h-4 w-4 text-slate-400" />
-      </CardHeader>
-      <CardBody className="space-y-4">
-        <Field label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Default role" hint="Role assigned to newly approved members.">
-          <Input
-            placeholder="member"
-            value={defaultRole}
-            onChange={(e) => setDefaultRole(e.target.value)}
-          />
-        </Field>
-        <div className="flex justify-end">
-          <Button onClick={save} loading={busy} disabled={!name.trim()}>
-            Save changes
-          </Button>
+    <>
+      <SecHead title="Organization" desc="Your organization's name and what newly approved members start with." />
+      <section className="ad-card" style={{ maxWidth: 680 }}>
+        <div className="ad-org">
+          <Tile name={name || "Org"} size={40} />
+          <div><b>{name || "Unnamed organization"}</b><small>New members start as <em>{defaultRole || "member"}</em></small></div>
         </div>
-      </CardBody>
-    </Card>
+        <label className="ad-field">Name
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <div className="ad-field">Default role
+          <small>The role given to people when you approve their registration.</small>
+          <div className="ad-chips" role="group" aria-label="Default role">
+            {(roles ?? []).map((r) => (
+              <button key={r.id} type="button" className={defaultRole === r.name ? "on" : ""} aria-pressed={defaultRole === r.name} onClick={() => setDefaultRole(r.name)}>{titleCase(r.name)}</button>
+            ))}
+            {defaultRole && !(roles ?? []).some((r) => r.name === defaultRole) && <button type="button" className="on" aria-pressed>{defaultRole}</button>}
+          </div>
+        </div>
+        <div className="ad-actions">
+          {dirty && <span className="ad-dirty">Unsaved changes</span>}
+          <AdBtn kind="primary" onClick={save} disabled={busy || !dirty || !name.trim()}>{busy ? "Saving…" : "Save changes"}</AdBtn>
+        </div>
+      </section>
+    </>
   );
 }
 
 // ---- Users & Access ------------------------------------------------------
 function UsersTab() {
+  const { data: all } = useQuery({ queryKey: ["all-users"], queryFn: () => usersApi.list() });
+  const { data: pending } = useQuery({ queryKey: ["pending-users"], queryFn: () => usersApi.list({ status: "pending_approval" }) });
+  const { data: invites } = useQuery({ queryKey: ["invitations"], queryFn: usersApi.listInvitations });
+  const open = (invites ?? []).filter((i) => !i.revoked_at && !i.accepted_at).length;
+  const active = (all ?? []).filter((u) => String(u.status) === "active").length;
   return (
-    <div className="space-y-4">
+    <>
+      <SecHead title="Users & access" desc="Who is in your organization: approve registrations, invite colleagues and see everyone's role." />
+      <Stats items={[
+        { n: (all ?? []).length, label: "people" },
+        { n: active, label: "active" },
+        { n: (pending ?? []).length, label: "waiting for approval", tone: (pending ?? []).length ? "warn" : undefined },
+        { n: open, label: "open invitations" },
+      ]} />
       <PendingUsersSection />
       <AllUsersSection />
       <InvitationsSection />
-    </div>
+    </>
   );
 }
 
 function AllUsersSection() {
   const [search, setSearch] = useState("");
+  const [seg, setSeg] = useState<"all" | "active" | "other">("all");
   const { data, isLoading, error } = useQuery({
     queryKey: ["all-users"],
     queryFn: () => usersApi.list(),
@@ -227,62 +260,36 @@ function AllUsersSection() {
     (u) => !q || `${u.email} ${u.full_name}`.toLowerCase().includes(q),
   );
 
+  const statusOf = (u: UserResponse) => String(u.status);
+  const counts = { all: (data ?? []).length, active: (data ?? []).filter((u) => statusOf(u) === "active").length };
+  const shownRows = rows.filter((u) => seg === "all" || (seg === "active" ? statusOf(u) === "active" : statusOf(u) !== "active"));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>All users</CardTitle>
-        <Badge tone="slate">{String((data ?? []).length)}</Badge>
-      </CardHeader>
-      <CardBody className="p-0">
-        <div className="border-b border-slate-200 p-3">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or email…"
-          />
+    <section className="adm-sec">
+      <div className="ad-bar">
+        <Seg<"all" | "active" | "other"> label="Filter people" value={seg} onChange={setSeg} items={[{ id: "all", label: "Everyone", n: counts.all }, { id: "active", label: "Active", n: counts.active }, { id: "other", label: "Other", n: counts.all - counts.active }]} />
+        <span className="sp" />
+        <Search value={search} onChange={setSearch} placeholder="Search name or email…" />
+      </div>
+      {isLoading ? (
+        <div className="ad-load"><span className="ad-spin" /></div>
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : shownRows.length === 0 ? (
+        <Empty icon={<UserPlus size={22} />} title={q ? "No one matches" : "No users"} desc={q ? "Try a different name or email." : "Registered users in your organization appear here."} />
+      ) : (
+        <div className="ad-t" role="table" aria-label="People" style={{ ["--cols" as string]: "minmax(0,2.2fr) minmax(0,2fr) 100px 90px" }}>
+          <div className="ad-th" role="row"><span>Person</span><span>Roles</span><span>Clearance</span><span>Status</span></div>
+          {shownRows.map((u, i) => (
+            <div key={u.id} className="ad-tr" role="row" style={{ ["--i" as string]: Math.min(i, 14) }}>
+              <span className="who"><Tile name={u.full_name} size={28} /><span style={{ minWidth: 0 }}><b>{u.full_name}</b><small>{u.email}</small></span></span>
+              <span className="wrap">{(u.roles?.length ? u.roles : [u.active_role_name ?? "no role"]).map((r) => <Pill key={r} tone={r === u.active_role_name ? "blue" : "slate"}>{titleCase(r)}</Pill>)}</span>
+              <span className="cell">{titleCase(u.clearance ?? "")}</span>
+              <Pill tone={statusOf(u) === "active" ? "green" : statusOf(u).includes("pending") ? "amber" : "slate"}>{titleCase(statusOf(u))}</Pill>
+            </div>
+          ))}
         </div>
-        {isLoading ? (
-          <CenterSpinner label="Loading users…" />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorState error={error} />
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              icon={<UserPlus className="h-6 w-6" />}
-              title="No users found"
-              description="Registered users in your organization appear here."
-            />
-          </div>
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Name</TH>
-                <TH>Email</TH>
-                <TH>Role</TH>
-                <TH>Status</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {rows.map((u) => (
-                <TR key={u.id}>
-                  <TD className="font-medium text-slate-900">{u.full_name}</TD>
-                  <TD>{u.email}</TD>
-                  <TD>{u.active_role_name ?? u.roles?.join(", ") ?? "—"}</TD>
-                  <TD>
-                    <Badge tone={statusTone(String(u.status))}>
-                      {titleCase(String(u.status))}
-                    </Badge>
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </CardBody>
-    </Card>
+      )}
+    </section>
   );
 }
 
@@ -317,73 +324,26 @@ function PendingUsersSection() {
     }
   }
 
+  const list = data ?? [];
+  if (isLoading) return <div className="ad-load"><span className="ad-spin" /></div>;
+  if (error) return <ErrorState error={error} />;
+  if (list.length === 0) return null;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Pending registrations</CardTitle>
-        <UserPlus className="h-4 w-4 text-slate-400" />
-      </CardHeader>
-      <CardBody className="p-0">
-        {isLoading ? (
-          <CenterSpinner label="Loading pending users…" />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorState error={error} />
-          </div>
-        ) : (data ?? []).length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              icon={<UserPlus className="h-6 w-6" />}
-              title="No pending registrations"
-              description="Self-registered users awaiting approval appear here."
-            />
-          </div>
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Email</TH>
-                <TH>Full name</TH>
-                <TH>Status</TH>
-                <TH className="text-right">Actions</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(data ?? []).map((u) => (
-                <TR key={u.id}>
-                  <TD className="font-medium text-slate-900">{u.email}</TD>
-                  <TD>{u.full_name}</TD>
-                  <TD>
-                    <Badge tone={statusTone(String(u.status))}>
-                      {titleCase(String(u.status))}
-                    </Badge>
-                  </TD>
-                  <TD className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        loading={busyId === u.id}
-                        onClick={() => decide(u, "approve")}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        loading={busyId === u.id}
-                        onClick={() => decide(u, "reject")}
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </CardBody>
-    </Card>
+    <section className="ad-card ad-attn flush">
+      <div className="ad-th" style={{ ["--cols" as string]: "1fr" }}><span>Waiting for your approval ({list.length}). They cannot sign in until you decide.</span></div>
+      <ul className="ad-rows">
+        {list.map((u, i) => (
+          <li key={u.id} className="ad-row" style={{ ["--i" as string]: i }}>
+            <Tile name={u.full_name} size={28} />
+            <span className="main"><b>{u.full_name}</b><small>{u.email}</small></span>
+            <span className="acts">
+              <AdBtn kind="primary" className="sm" disabled={busyId === u.id} onClick={() => decide(u, "approve")}>Approve</AdBtn>
+              <AdBtn kind="danger" className="sm" disabled={busyId === u.id} onClick={() => decide(u, "reject")}>Reject</AdBtn>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -440,135 +400,64 @@ function InvitationsSection() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Invitations</CardTitle>
-        <Button size="sm" onClick={() => setInviteOpen(true)}>
-          <UserPlus className="h-3.5 w-3.5" />
-          Invite user
-        </Button>
-      </CardHeader>
+    <section className="adm-sec">
+      <div className="ad-bar">
+        <h3 className="ad-subh">Invitations</h3>
+        <span className="rt-dim-s">{(data ?? []).length} sent</span>
+        <span className="sp" />
+        <AdBtn kind="primary" onClick={() => setInviteOpen(true)}><UserPlus size={14} />Invite user</AdBtn>
+      </div>
       {linkInvite && (
-        <div className="border-b border-brand-200 bg-brand-50 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-900">
-                Invitation created for {linkInvite.email}
-              </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {linkInvite.email_sent
-                  ? "We emailed them the invite link. You can also share it directly:"
-                  : "Email wasn't sent (no email service is configured). Share this link with them so they can join:"}
-              </p>
+        <div className="ad-link" role="status">
+          <div className="top">
+            <div>
+              <b>Invitation created for {linkInvite.email}</b>
+              <p>{linkInvite.email_sent ? "We emailed them the invite link. You can also share it directly:" : "Email wasn't sent (no email service is configured). Share this link so they can join:"}</p>
             </div>
-            <button
-              onClick={() => setLinkInvite(null)}
-              className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Dismiss"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <button type="button" className="x" onClick={() => setLinkInvite(null)} aria-label="Dismiss"><X size={16} /></button>
           </div>
-          <div className="mt-2.5 flex items-center gap-2">
-            <Input
-              readOnly
-              value={inviteLink}
-              className="flex-1 font-mono text-xs"
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <Button size="sm" variant="outline" onClick={copyLink}>
-              {copied ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-              {copied ? "Copied" : "Copy"}
-            </Button>
+          <div className="copy">
+            <input readOnly value={inviteLink} onFocus={(e) => e.currentTarget.select()} aria-label="Invitation link" />
+            <AdBtn kind="ghost" className="sm" onClick={copyLink}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy"}</AdBtn>
           </div>
-          <p className="mt-2 text-[11px] text-slate-400">
-            This link contains a one-time token and is shown only now — it
-            expires on {fmtDateTime(linkInvite.expires_at)}.
-          </p>
+          <small>One-time link, shown only now. It expires on {fmtDateTime(linkInvite.expires_at)}.</small>
         </div>
       )}
-      <CardBody className="p-0">
-        {isLoading ? (
-          <CenterSpinner label="Loading invitations…" />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorState error={error} />
-          </div>
-        ) : (data ?? []).length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              icon={<Mail className="h-6 w-6" />}
-              title="No invitations"
-              description="Invite a colleague to join your organization."
-            />
-          </div>
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Email</TH>
-                <TH>Role</TH>
-                <TH>Expires</TH>
-                <TH>Status</TH>
-                <TH className="text-right">Actions</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(data ?? []).map((inv) => {
-                const status = statusOf(inv);
-                return (
-                  <TR key={inv.id}>
-                    <TD className="font-medium text-slate-900">
-                      {inv.email}
-                    </TD>
-                    <TD>{titleCase(inv.role_name)}</TD>
-                    <TD>{fmtDateTime(inv.expires_at)}</TD>
-                    <TD>
-                      <Badge tone={statusTone(status)}>
-                        {titleCase(status)}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right">
-                      {status === "pending" ? (
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          loading={busyId === inv.id}
-                          onClick={() => revoke(inv.id)}
-                        >
-                          Revoke
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
-                    </TD>
-                  </TR>
-                );
-              })}
-            </tbody>
-          </Table>
-        )}
-      </CardBody>
-
+      {isLoading ? (
+        <div className="ad-load"><span className="ad-spin" /></div>
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : (data ?? []).length === 0 ? (
+        <div className="ad-calm"><Mail size={15} />No invitations yet. Invite a colleague to join your organization.</div>
+      ) : (
+        <div className="ad-t" role="table" aria-label="Invitations" style={{ ["--cols" as string]: "minmax(0,2fr) 120px minmax(0,1.2fr) 90px 80px" }}>
+          <div className="ad-th" role="row"><span>Email</span><span>Role</span><span>Expires</span><span>Status</span><span /></div>
+          {(data ?? []).map((inv, i) => {
+            const status = statusOf(inv);
+            return (
+              <div key={inv.id} className="ad-tr" role="row" style={{ ["--i" as string]: Math.min(i, 14) }}>
+                <span className="cell" style={{ fontWeight: 600, color: "var(--ink)" }}>{inv.email}</span>
+                <span className="cell">{titleCase(inv.role_name)}</span>
+                <span className="cell">{fmtDateTime(inv.expires_at)}</span>
+                <Pill tone={status === "pending" ? "amber" : status === "accepted" ? "green" : "slate"}>{titleCase(status)}</Pill>
+                <span className="end">{status === "pending" && <AdBtn kind="danger" className="sm" disabled={busyId === inv.id} onClick={() => revoke(inv.id)}>Revoke</AdBtn>}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <InviteModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
         onInvited={(inv) => {
           qc.invalidateQueries({ queryKey: ["invitations"] });
-          notify(
-            inv.email_sent ? "Invitation emailed" : "Invitation created",
-            "success",
-          );
+          notify(inv.email_sent ? "Invitation emailed" : "Invitation created", "success");
           setCopied(false);
           setLinkInvite(inv);
           setInviteOpen(false);
         }}
       />
-    </Card>
+    </section>
   );
 }
 
@@ -662,64 +551,30 @@ function SettingsTab() {
     queryFn: adminApi.settings,
   });
 
+  const list = data ?? [];
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Settings</CardTitle>
-        <Button size="sm" onClick={() => setUpsertOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          Upsert setting
-        </Button>
-      </CardHeader>
-      <CardBody className="p-0">
-        {isLoading ? (
-          <CenterSpinner label="Loading settings…" />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorState error={error} />
-          </div>
-        ) : (data ?? []).length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              icon={<SettingsIcon className="h-6 w-6" />}
-              title="No settings"
-              description="Add an organization-level configuration value."
-            />
-          </div>
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Key</TH>
-                <TH>Value</TH>
-                <TH>Secret</TH>
-                <TH>Updated</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(data ?? []).map((s) => (
-                <TR key={s.id}>
-                  <TD className="font-mono text-xs font-medium text-slate-900">
-                    {s.key}
-                  </TD>
-                  <TD className="max-w-md">
-                    <code className="text-xs text-slate-600">
-                      {s.is_secret ? "••••••••" : JSON.stringify(s.value)}
-                    </code>
-                  </TD>
-                  <TD>
-                    <Badge tone={s.is_secret ? "amber" : "slate"}>
-                      {s.is_secret ? "Secret" : "Plain"}
-                    </Badge>
-                  </TD>
-                  <TD>{fmtDateTime(s.updated_at)}</TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </CardBody>
-
+    <>
+      <SecHead title="Settings" desc="Organization-level values the app reads. Secrets are stored hidden and never shown again."
+        action={<AdBtn kind="primary" onClick={() => setUpsertOpen(true)}><Plus size={14} />Add or change</AdBtn>} />
+      {isLoading ? (
+        <div className="ad-load"><span className="ad-spin" /></div>
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : list.length === 0 ? (
+        <Empty icon={<SettingsIcon size={22} />} title="No settings yet" desc="Add an organization-level configuration value." action={<AdBtn kind="primary" onClick={() => setUpsertOpen(true)}><Plus size={14} />Add a setting</AdBtn>} />
+      ) : (
+        <div className="ad-t" role="table" aria-label="Settings" style={{ ["--cols"as string]: "minmax(0,2fr) minmax(0,2fr) 80px 150px" }}>
+          <div className="ad-th" role="row"><span>Key</span><span>Value</span><span>Type</span><span>Updated</span></div>
+          {list.map((st, i) => (
+            <div key={st.id} className="ad-tr" role="row" style={{ ["--i" as string]: Math.min(i, 14) }}>
+              <span className="cell ad-mono" style={{ color: "var(--ink)", fontWeight: 600 }}>{st.key}</span>
+              <code className="cell ad-mono">{st.is_secret ? "••••••••" : JSON.stringify(st.value)}</code>
+              <Pill tone={st.is_secret ? "amber" : "slate"}>{st.is_secret ? "Secret" : "Plain"}</Pill>
+              <span className="cell">{fmtDateTime(st.updated_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <UpsertSettingModal
         open={upsertOpen}
         onClose={() => setUpsertOpen(false)}
@@ -729,7 +584,7 @@ function SettingsTab() {
           setUpsertOpen(false);
         }}
       />
-    </Card>
+    </>
   );
 }
 
@@ -827,7 +682,7 @@ function IntegrationsTab() {
     queryFn: debugApi.configStatus,
   });
 
-  if (isLoading) return <CenterSpinner label="Loading integrations…" />;
+  if (isLoading) return <div className="ad-load"><span className="ad-spin" /></div>;
   if (error) return <ErrorState error={error} />;
   if (!data) return null;
 
@@ -838,48 +693,37 @@ function IntegrationsTab() {
     { key: "docusign", label: "DocuSign (E-sign)" },
   ];
 
+  const done = providers.filter(({ key }) => (data[key] as { configured: boolean }).configured).length;
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {providers.map(({ key, label }) => {
+    <>
+      <SecHead title="Integrations" desc="The outside services Aegis relies on, and whether each one is connected." />
+      <Stats items={[
+        { n: `${done} of ${providers.length}`, label: "services connected", tone: done < providers.length ? "warn" : undefined },
+        { n: data.debug ? "On" : "Off", label: "debug mode", tone: data.debug ? "warn" : undefined },
+      ]} />
+      <div className="ad-grid2">
+        {providers.map(({ key, label }, i) => {
           const cfg = data[key] as { configured: boolean; mock: boolean };
           return (
-            <Card key={key}>
-              <CardHeader>
-                <CardTitle>{label}</CardTitle>
-                <Plug className="h-4 w-4 text-slate-400" />
-              </CardHeader>
-              <CardBody className="flex items-center gap-2">
-                <Badge tone={cfg.configured ? "green" : "red"}>
-                  {cfg.configured ? "Configured" : "Not configured"}
-                </Badge>
-                {cfg.mock && <Badge tone="amber">Mock mode</Badge>}
-              </CardBody>
-            </Card>
+            <article key={key} className={`ad-int${cfg.configured ? " ok" : " bad"}`} style={{ ["--i" as string]: i }}>
+              <span className="ad-ico lg"><Plug size={20} /></span>
+              <div className="main">
+                <b>{label}</b>
+                <span className="st"><i className="dot" />{cfg.configured ? "Connected" : "Not connected"}{cfg.mock && <Pill tone="amber">Mock mode</Pill>}</span>
+              </div>
+            </article>
           );
         })}
       </div>
-
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle>Environment</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-2 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-500">Storage root</span>
-            <span className="font-mono text-xs text-slate-700">
-              {data.storage_root}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-slate-500">Debug mode</span>
-            <Badge tone={data.debug ? "amber" : "slate"}>
-              {data.debug ? "Enabled" : "Disabled"}
-            </Badge>
-          </div>
-        </CardBody>
-      </Card>
-    </div>
+      <section className="ad-card" style={{ maxWidth: 680 }}>
+        <h3>Environment</h3>
+        <dl className="ad-env">
+          <div><dt>Storage root</dt><dd className="ad-mono">{data.storage_root}</dd></div>
+          <div><dt>Debug mode</dt><dd><Pill tone={data.debug ? "amber" : "slate"}>{data.debug ? "Enabled" : "Disabled"}</Pill></dd></div>
+        </dl>
+        {data.debug && <p className="ad-warn">Debug mode is on. Turn it off before real use.</p>}
+      </section>
+    </>
   );
 }
 
@@ -899,9 +743,14 @@ function RolesTab() {
     queryKey: ["role-permissions"],
     queryFn: rolesApi.permissions,
   });
+  const { data: users } = useQuery({
+    queryKey: ["org-users-all"],
+    queryFn: () => usersApi.list(),
+  });
   const [editor, setEditor] = useState<{
     mode: "create" | "edit";
     role?: RoleResponse;
+    seed?: RoleResponse;
   } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -909,7 +758,9 @@ function RolesTab() {
   async function remove(role: RoleResponse) {
     const ok = await confirm({
       title: "Delete role",
-      message: `Delete the "${titleCase(role.name)}" role? This cannot be undone.`,
+      message: role.user_count
+        ? `Delete the "${titleCase(role.name)}" role? ${role.user_count} ${role.user_count === 1 ? "person has" : "people have"} it and will lose it. This cannot be undone.`
+        : `Delete the "${titleCase(role.name)}" role? This cannot be undone.`,
       confirmLabel: "Delete",
       tone: "danger",
     });
@@ -931,96 +782,43 @@ function RolesTab() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Roles</CardTitle>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Permissions only — what a person is allowed to do. Not the same as{" "}
-              <b>Teams</b> (who does the work) or <b>Approver Groups</b> (who signs off).
-            </p>
-          </div>
-          <Button onClick={() => setEditor({ mode: "create" })}>
-            <Plus className="h-4 w-4" />
-            New role
-          </Button>
-        </CardHeader>
-        <CardBody className="p-0">
-          <Table>
-            <THead>
-              <tr>
-                <TH>Role</TH>
-                <TH>Permissions</TH>
-                <TH>Members</TH>
-                <TH className="text-right">Actions</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(roles ?? []).map((r) => (
-                <TR key={r.id}>
-                  <TD>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-slate-900">
-                        {titleCase(r.name)}
-                      </span>
-                      {r.is_builtin && (
-                        <Badge tone="slate">
-                          <Lock className="h-3 w-3" />
-                          Built-in
-                        </Badge>
-                      )}
-                    </div>
-                    {r.description && (
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {r.description}
-                      </p>
-                    )}
-                  </TD>
-                  <TD className="tabular-nums text-slate-600">
-                    {r.permissions.length}
-                  </TD>
-                  <TD className="tabular-nums text-slate-600">{r.user_count}</TD>
-                  <TD className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditor({ mode: "edit", role: r })}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        {r.name === ADMIN_ROLE
-                          ? "View"
-                          : r.is_builtin
-                            ? "Edit permissions"
-                            : "Edit"}
-                      </Button>
-                      {!r.is_builtin && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => remove(r)}
-                          loading={busyId === r.id}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete
-                        </Button>
-                      )}
-                    </div>
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        </CardBody>
-      </Card>
-
-      <AssignRolesPanel roles={roles ?? []} />
+      <RolesView
+        roles={roles ?? []}
+        catalog={catalog ?? []}
+        users={users ?? []}
+        busyId={busyId}
+        adminRole={ADMIN_ROLE}
+        onNew={(seed) => setEditor({ mode: "create", seed })}
+        onEdit={(r) => setEditor({ mode: "edit", role: r })}
+        onDelete={remove}
+        onSavePerms={async (r, perms, rollup) => {
+          try {
+            await rolesApi.update(r.id, { permissions: perms, allows_hierarchy_rollup: rollup });
+            qc.invalidateQueries({ queryKey: ["roles"] });
+            notify("Role updated", "success");
+          } catch (e) {
+            notify(e instanceof Error ? e.message : "Save failed", "error");
+          }
+        }}
+        onSetUserRoles={async (userId, roleIds, activeId) => {
+          try {
+            await rolesApi.setUserRoles(userId, { role_ids: roleIds, active_role_id: activeId });
+            qc.invalidateQueries({ queryKey: ["roles"] });
+            qc.invalidateQueries({ queryKey: ["org-users-all"] });
+          } catch (e) {
+            notify(e instanceof Error ? e.message : "Update failed", "error");
+          }
+        }}
+        peopleView={<AssignRolesPanel roles={roles ?? []} />}
+      />
 
       {editor && (
         <RoleEditorModal
           mode={editor.mode}
           role={editor.role}
+          seed={editor.seed}
           catalog={catalog ?? []}
+          allRoles={roles ?? []}
           onClose={() => setEditor(null)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["roles"] });
@@ -1036,24 +834,29 @@ function RolesTab() {
 function RoleEditorModal({
   mode,
   role,
+  seed,
   catalog,
+  allRoles,
   onClose,
   onSaved,
 }: {
   mode: "create" | "edit";
   role?: RoleResponse;
+  seed?: RoleResponse;
   catalog: PermissionInfo[];
+  allRoles: RoleResponse[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { notify } = useToast();
-  const [name, setName] = useState(role?.name ?? "");
-  const [description, setDescription] = useState(role?.description ?? "");
+  const from = role ?? seed;
+  const [name, setName] = useState(seed ? `${seed.name} copy` : role?.name ?? "");
+  const [description, setDescription] = useState(from?.description ?? "");
   const [selected, setSelected] = useState<Set<string>>(
-    new Set(role?.permissions ?? []),
+    new Set(from?.permissions ?? []),
   );
   const [allowsHierarchyRollup, setAllowsHierarchyRollup] = useState(
-    role?.allows_hierarchy_rollup ?? true,
+    from?.allows_hierarchy_rollup ?? true,
   );
   const [busy, setBusy] = useState(false);
 
@@ -1118,122 +921,28 @@ function RoleEditorModal({
   }
 
   return (
-    <Modal
-      open
+    <RoleEditorUI
+      mode={mode}
+      title={mode === "create" ? "New role" : readOnly ? `${titleCase(role!.name)} (built-in)` : `Edit ${titleCase(role!.name)}`}
+      readOnly={readOnly}
+      nameLocked={nameLocked}
+      name={name}
+      setName={setName}
+      description={description}
+      setDescription={setDescription}
+      rollup={allowsHierarchyRollup}
+      setRollup={setAllowsHierarchyRollup}
+      selected={selected}
+      onToggle={toggle}
+      onToggleGroup={toggleGroup}
+      onReplace={(perms) => setSelected(new Set(perms))}
+      groups={groups}
+      roles={allRoles}
+      busy={busy}
+      canSave={!!name.trim()}
+      onSave={save}
       onClose={onClose}
-      title={
-        mode === "create"
-          ? "New role"
-          : readOnly
-            ? `${titleCase(role!.name)} (built-in)`
-            : `Edit ${titleCase(role!.name)}`
-      }
-      size="lg"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            {readOnly ? "Close" : "Cancel"}
-          </Button>
-          {!readOnly && (
-            <Button onClick={save} loading={busy} disabled={!name.trim()}>
-              {mode === "create" ? "Create role" : "Save changes"}
-            </Button>
-          )}
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {readOnly && (
-          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
-            The built-in <strong>admin</strong> role always has every permission
-            and can’t be changed — it’s your break-glass access.
-          </p>
-        )}
-        <Field label="Name">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={nameLocked || readOnly}
-            placeholder="e.g. Paralegal, Outside Counsel"
-          />
-        </Field>
-        <Field label="Description" hint="Optional">
-          <Textarea
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={readOnly}
-          />
-        </Field>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-200"
-            checked={allowsHierarchyRollup}
-            onChange={(e) => setAllowsHierarchyRollup(e.target.checked)}
-            disabled={readOnly}
-          />
-          Rolls up the org-unit hierarchy
-        </label>
-        <div>
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-            Permissions ({selected.size})
-          </p>
-          <div className="max-h-[46vh] space-y-4 overflow-y-auto rounded-md border border-slate-200 p-3">
-            {groups.map(([group, perms]) => {
-              const all = perms.every((p) => selected.has(p.value));
-              return (
-                <div key={group}>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-sm font-semibold capitalize text-slate-800">
-                      {group.replace(/_/g, " ")}
-                    </span>
-                    {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(perms, !all)}
-                        className="text-xs font-medium text-brand-600 hover:text-brand-700"
-                      >
-                        {all ? "Clear" : "Select all"}
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid gap-1.5 sm:grid-cols-2">
-                    {perms.map((p) => (
-                      <label
-                        key={p.value}
-                        className={cn(
-                          "flex items-start gap-2 rounded-md px-2 py-1.5 text-sm",
-                          !readOnly && "cursor-pointer hover:bg-slate-50",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4 accent-brand-600"
-                          checked={selected.has(p.value)}
-                          onChange={() => toggle(p.value)}
-                          disabled={readOnly}
-                        />
-                        <span>
-                          <span className="font-mono text-xs text-slate-700">
-                            {p.value}
-                          </span>
-                          {p.description && (
-                            <span className="block text-xs text-slate-400">
-                              {p.description}
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </Modal>
+    />
   );
 }
 
@@ -1287,6 +996,7 @@ function AssignRolesPanel({ roles }: { roles: RoleResponse[] }) {
       qc.invalidateQueries({ queryKey: ["roles"] });
       qc.invalidateQueries({ queryKey: ["org-users-all"] });
       notify("Roles updated", "success");
+      setUserId("");
     } catch (e) {
       notify(e instanceof Error ? e.message : "Update failed", "error");
     } finally {
@@ -1295,88 +1005,25 @@ function AssignRolesPanel({ roles }: { roles: RoleResponse[] }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Assign roles to a user</CardTitle>
-      </CardHeader>
-      <CardBody className="space-y-4">
-        <Field label="User">
-          <Select value={userId} onChange={(e) => pickUser(e.target.value)}>
-            <option value="">Select a user…</option>
-            {(users ?? []).map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.full_name} · {u.email}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        {selectedUser && (
-          <>
-            <div>
-              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                Roles
-              </p>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {roles.map((r) => (
-                  <label
-                    key={r.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-brand-600"
-                      checked={roleIds.has(r.id)}
-                      onChange={() => toggleRole(r.id)}
-                    />
-                    <span className="text-slate-700">{titleCase(r.name)}</span>
-                    {r.is_builtin && (
-                      <ShieldCheck className="h-3.5 w-3.5 text-slate-300" />
-                    )}
-                  </label>
-                ))}
-              </div>
-            </div>
-            {roleIds.size > 1 && (
-              <Field label="Primary (active) role">
-                <Select
-                  value={activeRoleId}
-                  onChange={(e) => setActiveRoleId(e.target.value)}
-                >
-                  {[...roleIds].map((id) => {
-                    const r = roles.find((x) => x.id === id);
-                    return (
-                      <option key={id} value={id}>
-                        {r ? titleCase(r.name) : id}
-                      </option>
-                    );
-                  })}
-                </Select>
-              </Field>
-            )}
-            <Field
-              label="Confidentiality clearance"
-              hint="Highest classification this user may read. Contracts above it are hidden — including from the assistant."
-            >
-              <Select
-                value={clearance}
-                onChange={(e) => setClearance(e.target.value)}
-              >
-                {CLEARANCE_LEVELS.map((lvl) => (
-                  <option key={lvl} value={lvl}>
-                    {titleCase(lvl)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="flex justify-end">
-              <Button onClick={save} loading={busy} disabled={roleIds.size === 0}>
-                Save roles
-              </Button>
-            </div>
-          </>
-        )}
-      </CardBody>
-    </Card>
+    <>
+      <PeopleList users={users ?? []} onManage={(u) => pickUser(u.id)} />
+      {selectedUser && (
+        <AssignUI
+          user={selectedUser}
+          roles={roles}
+          picked={roleIds}
+          onToggle={toggleRole}
+          activeId={activeRoleId}
+          setActiveId={setActiveRoleId}
+          clearance={clearance}
+          setClearance={setClearance}
+          levels={CLEARANCE_LEVELS}
+          busy={busy}
+          onSave={save}
+          onClose={() => setUserId("")}
+        />
+      )}
+    </>
   );
 }
 
@@ -1433,105 +1080,28 @@ function EthicalWallsTab() {
   if (isLoading) return <CenterSpinner />;
   if (error) return <ErrorState error={error} />;
 
+  const list = walls ?? [];
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Ethical walls</CardTitle>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Conflict-of-interest screens. A wall hard-blocks the named people
-              from a contract — overriding ownership, sharing and admin
-              alike, including in search and the assistant.
-            </p>
-          </div>
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            New wall
-          </Button>
-        </CardHeader>
-        <CardBody className="p-0">
-          {(walls ?? []).length === 0 ? (
-            <div className="p-6">
-              <EmptyState
-                icon={<ShieldAlert className="h-5 w-5" />}
-                title="No ethical walls"
-                description="Screens you create to seal conflicted people off from a contract will appear here."
-              />
+    <>
+      <SecHead title="Ethical walls" desc="Conflict-of-interest screens. A wall hard-blocks the named people from a contract, overriding ownership, sharing and admin alike, including in search and the assistant."
+        action={<AdBtn kind="primary" onClick={() => setCreating(true)}><Plus size={14} />New wall</AdBtn>} />
+      {list.length > 0 && <Stats items={[{ n: list.filter((w) => w.active).length, label: "up" }, { n: list.filter((w) => !w.active).length, label: "lifted" }]} />}
+      {list.length === 0 ? (
+        <Empty icon={<ShieldAlert size={22} />} title="No ethical walls" desc="Create a wall to seal conflicted people off from a contract." action={<AdBtn kind="primary" onClick={() => setCreating(true)}><Plus size={14} />New wall</AdBtn>} />
+      ) : (
+        <div className="ad-t" role="table" aria-label="Ethical walls" style={{ ["--cols" as string]: "minmax(0,1.6fr) minmax(0,1.2fr) minmax(0,1.6fr) 80px 44px" }}>
+          <div className="ad-th" role="row"><span>Wall</span><span>Scope</span><span>Barred</span><span>State</span><span /></div>
+          {list.map((w, i) => (
+            <div key={w.id} className="ad-tr" role="row" style={{ ["--i" as string]: Math.min(i, 14), opacity: w.active ? 1 : 0.6 }}>
+              <span className="who"><span className="ad-ico red"><ShieldAlert size={15} /></span><span style={{ minWidth: 0 }}><b>{w.name}</b>{w.reason && <small>{w.reason}</small>}</span></span>
+              <span className="cell"><Pill tone="slate">{titleCase(w.scope_type)}</Pill> {w.scope_label ?? w.scope_id}</span>
+              <span className="wrap">{w.principals.map((pr) => <Pill key={pr.id ?? pr.principal_id} tone="red">{pr.principal_type === "role" ? "Role: " : ""}{pr.principal_label ?? pr.principal_id}</Pill>)}</span>
+              <span className="end" style={{ justifyContent: "flex-start" }}><Switch on={w.active} onChange={() => toggleActive(w)} label={w.active ? `Lift ${w.name}` : `Re-activate ${w.name}`} disabled={busyId === w.id} /></span>
+              <span className="end"><AdBtn kind="danger" className="sm" disabled={busyId === w.id} onClick={() => remove(w)} aria-label={`Delete ${w.name}`}><Trash2 size={13} /></AdBtn></span>
             </div>
-          ) : (
-            <Table>
-              <THead>
-                <tr>
-                  <TH>Wall</TH>
-                  <TH>Scope</TH>
-                  <TH>Barred</TH>
-                  <TH>Status</TH>
-                  <TH className="text-right">Actions</TH>
-                </tr>
-              </THead>
-              <tbody>
-                {(walls ?? []).map((w) => (
-                  <TR key={w.id}>
-                    <TD>
-                      <div className="flex items-center gap-2">
-                        <ShieldAlert className="h-4 w-4 text-danger" />
-                        <span className="font-medium text-slate-900">{w.name}</span>
-                      </div>
-                      {w.reason && (
-                        <p className="mt-0.5 text-xs text-slate-500">{w.reason}</p>
-                      )}
-                    </TD>
-                    <TD>
-                      <Badge tone="slate">{titleCase(w.scope_type)}</Badge>
-                      <span className="ml-2 text-slate-600">
-                        {w.scope_label ?? w.scope_id}
-                      </span>
-                    </TD>
-                    <TD>
-                      <div className="flex flex-wrap gap-1">
-                        {w.principals.map((p) => (
-                          <Badge key={p.id ?? p.principal_id} tone="red">
-                            {p.principal_type === "role" ? "Role: " : ""}
-                            {p.principal_label ?? p.principal_id}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TD>
-                    <TD>
-                      <Badge tone={w.active ? "green" : "slate"}>
-                        {w.active ? "Active" : "Lifted"}
-                      </Badge>
-                    </TD>
-                    <TD className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleActive(w)}
-                          loading={busyId === w.id}
-                        >
-                          {w.active ? "Lift" : "Re-activate"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => remove(w)}
-                          loading={busyId === w.id}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete
-                        </Button>
-                      </div>
-                    </TD>
-                  </TR>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </CardBody>
-      </Card>
-
+          ))}
+        </div>
+      )}
       {creating && (
         <WallEditorModal
           onClose={() => setCreating(false)}
@@ -1542,7 +1112,7 @@ function EthicalWallsTab() {
         />
       )}
       {confirmDialog}
-    </div>
+    </>
   );
 }
 
@@ -1741,7 +1311,7 @@ function AuthorityTab() {
     }
   }
 
-  if (isLoading) return <CenterSpinner />;
+  if (isLoading) return <div className="ad-load"><span className="ad-spin" /></div>;
   if (error) return <ErrorState error={error} />;
 
   const byAction = AUTHORITY_ACTIONS.map((a) => ({
@@ -1750,102 +1320,36 @@ function AuthorityTab() {
   }));
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Delegation of authority</CardTitle>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Who may commit the company, and up to what limit. Approving or
-              sending for signature is blocked when a contract’s value, type,
-              jurisdiction or risk exceeds the actor’s authority. An action is
-              only enforced once you define a policy for it.
-            </p>
+    <>
+      <SecHead title="Delegation of authority" desc="Who may commit the company, and up to what limit. An action is only enforced once you define a policy for it."
+        action={<AdBtn kind="primary" onClick={() => setCreating(true)}><Plus size={14} />New authority</AdBtn>} />
+      {byAction.map((a) => (
+        <section key={a.value} className="adm-sec">
+          <div className="ad-bar">
+            <span className="ad-ico"><Scale size={15} /></span>
+            <h3 className="ad-subh">{a.label}</h3>
+            <Pill tone={a.rows.length ? "blue" : "slate"}>{a.rows.length ? `Gated · ${a.rows.length}` : "Not gated"}</Pill>
           </div>
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            New authority
-          </Button>
-        </CardHeader>
-        <CardBody className="space-y-5">
-          {byAction.map((a) => (
-            <div key={a.value}>
-              <div className="mb-2 flex items-center gap-2">
-                <Scale className="h-4 w-4 text-slate-400" />
-                <span className="text-sm font-semibold text-slate-800">
-                  {a.label}
-                </span>
-                <Badge tone={a.rows.length ? "blue" : "slate"}>
-                  {a.rows.length ? "Gated" : "Not gated"}
-                </Badge>
-              </div>
-              {a.rows.length === 0 ? (
-                <p className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-500">
-                  No policy — this action is governed by role permissions alone.
-                </p>
-              ) : (
-                <Table>
-                  <THead>
-                    <tr>
-                      <TH>Who</TH>
-                      <TH>Limit</TH>
-                      <TH>Scope</TH>
-                      <TH className="text-right">Actions</TH>
-                    </tr>
-                  </THead>
-                  <tbody>
-                    {a.rows.map((g) => (
-                      <TR key={g.id}>
-                        <TD>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-900">
-                              {g.principal_label}
-                            </span>
-                            <Badge tone="slate">
-                              {g.principal_type === "role" ? "Role" : "Person"}
-                            </Badge>
-                            {g.delegated_by_label && (
-                              <Badge tone="violet">
-                                Delegated by {g.delegated_by_label}
-                              </Badge>
-                            )}
-                          </div>
-                        </TD>
-                        <TD className="text-slate-700">{fmtLimit(g)}</TD>
-                        <TD className="text-xs text-slate-600">
-                          {[
-                            g.allowed_contract_types.length
-                              ? `Types: ${g.allowed_contract_types.join(", ")}`
-                              : null,
-                            g.allowed_jurisdictions.length
-                              ? `Juris: ${g.allowed_jurisdictions.join(", ")}`
-                              : null,
-                            g.max_risk_band ? `Risk ≤ ${g.max_risk_band}` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || "Any type / jurisdiction / risk"}
-                        </TD>
-                        <TD className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => revoke(g)}
-                            loading={busyId === g.id}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Revoke
-                          </Button>
-                        </TD>
-                      </TR>
-                    ))}
-                  </tbody>
-                </Table>
-              )}
+          {a.rows.length === 0 ? (
+            <div className="ad-calm">No limit set. Anyone whose role allows this may do it. Add a policy to cap it.</div>
+          ) : (
+            <div className="ad-t" role="table" aria-label={a.label} style={{ ["--cols" as string]: "minmax(0,2fr) minmax(0,2fr) 140px 80px" }}>
+              <div className="ad-th" role="row"><span>Who</span><span>Scope</span><span>Limit</span><span /></div>
+              {a.rows.map((g, i) => (
+                <div key={g.id} className="ad-tr" role="row" style={{ ["--i" as string]: Math.min(i, 14) }}>
+                  <span className="who"><Tile name={g.principal_label} size={28} /><span style={{ minWidth: 0 }}><b>{g.principal_label}</b><small>{g.principal_type === "role" ? "Role" : "Person"}{g.delegated_by_label ? ` · delegated by ${g.delegated_by_label}` : ""}</small></span></span>
+                  <span className="wrap">
+                    {[g.allowed_contract_types.length ? `Types: ${g.allowed_contract_types.join(", ")}` : null, g.allowed_jurisdictions.length ? `Juris: ${g.allowed_jurisdictions.join(", ")}` : null, g.max_risk_band ? `Risk up to ${g.max_risk_band}` : null].filter(Boolean).map((t) => <Pill key={t} tone="slate">{t}</Pill>)}
+                    {!g.allowed_contract_types.length && !g.allowed_jurisdictions.length && !g.max_risk_band && <span className="rt-dim-s">Any type, place or risk</span>}
+                  </span>
+                  <span className="cell" style={{ fontWeight: 700, color: "var(--ink)" }}>{fmtLimit(g)}</span>
+                  <span className="end"><AdBtn kind="danger" className="sm" disabled={busyId === g.id} onClick={() => revoke(g)}>Revoke</AdBtn></span>
+                </div>
+              ))}
             </div>
-          ))}
-        </CardBody>
-      </Card>
-
+          )}
+        </section>
+      ))}
       {creating && (
         <AuthorityEditorModal
           onClose={() => setCreating(false)}
@@ -1856,7 +1360,7 @@ function AuthorityTab() {
         />
       )}
       {confirmDialog}
-    </div>
+    </>
   );
 }
 
@@ -2066,130 +1570,38 @@ function TeamsTab() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle>Teams</CardTitle>
-              <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                The one list of groups of people who do the work. A new request goes to the team whose{" "}
-                <b>expertise</b> covers it (else the <b>default intake team</b>), and every workflow step —
-                review, approval, signature — names the team that does it.
-              </p>
-            </div>
-            <Button onClick={() => setEditing("new")}>
-              <Plus className="h-4 w-4" /> New team
-            </Button>
-          </div>
-        </CardHeader>
-        <CardBody className="space-y-3">
-          {/* Two lists besides Teams answer different questions — say so here. */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-            <b className="text-slate-700">Teams</b> decide <b>who does the work</b>.{" "}
-            <b className="text-slate-700">Roles</b> (Admin → Roles) decide what a person is <b>allowed to do</b>.{" "}
-            <b className="text-slate-700">Authority</b> (Admin → Authority) limits the <b>value</b> someone may approve or sign.
-          </div>
-          {(teams ?? []).length === 0 ? (
-            <EmptyState
-              title="No teams yet"
-              description="Create a team and tag it with the matter types it handles and the business units it serves."
-            />
-          ) : (
-            (teams ?? []).map((t) => (
-              <div key={t.id} className="rounded-lg border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-900">{t.name}</span>
-                      {t.is_default_intake && <Badge tone="blue">Default intake team</Badge>}
-                      <Badge tone="slate">{t.strategy === "round_robin" ? "taking turns" : "fewest open items first"}</Badge>
-                      {t.overflow_team_name && <Badge tone="slate">overflow → {t.overflow_team_name}</Badge>}
-                      {!t.active && <Badge tone="amber">inactive</Badge>}
-                    </div>
-                    <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
-                      <div>
-                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Expertise</div>
-                        <div className="flex flex-wrap gap-1">
-                          {t.expertise.length
-                            ? t.expertise.map((e) => <Badge key={e} tone="green">{e}</Badge>)
-                            : <span className="text-slate-400">—</span>}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Serves (business units)</div>
-                        <div className="flex flex-wrap gap-1">
-                          {t.departments.length
-                            ? t.departments.map((d) => <Badge key={d} tone="blue">{d}</Badge>)
-                            : <span className="text-slate-400">all</span>}
-                        </div>
-                      </div>
-                    </div>
-                    {t.members.length === 0 ? (
-                      <div className="text-xs text-danger">No members — any workflow step that uses this team would stall.</div>
-                    ) : (
-                      <ul className="grid max-w-xl gap-1.5 text-xs" aria-label={`${t.name} members and workload`}>
-                        {t.members.map((m) => {
-                          const open = m.open_count ?? 0;
-                          const pct = m.capacity > 0 ? Math.min(100, Math.round((open / m.capacity) * 100)) : 0;
-                          // Approval authority shows only once limits exist (Admin → Authority).
-                          const showAuth = t.members.some((x) => x.approve_limit);
-                          return (
-                            <li key={m.user_id} className={cn("grid items-center gap-3", showAuth ? "grid-cols-[minmax(0,1fr)_120px_90px_170px]" : "grid-cols-[minmax(0,1fr)_120px_90px]")}>
-                              <span className="truncate text-slate-700">{m.name ?? m.user_id}</span>
-                              {m.capacity > 0 ? (
-                                <span className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                  <span className={pct >= 80 ? "block h-full bg-warning" : "block h-full bg-success"} style={{ width: `${pct}%` }} />
-                                </span>
-                              ) : <span className="text-slate-400">no limit</span>}
-                              <span className="text-slate-500">{m.capacity > 0 ? `${open} of ${m.capacity} open` : `${open} open`}</span>
-                              {showAuth && <span className={cn("truncate", m.approve_limit === "no authority" ? "text-warning" : "text-slate-600")} title="Approval authority (Admin → Authority)">Approves {m.approve_limit ?? "—"}</span>}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                    <div className="text-xs">
-                      <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Used in</div>
-                      {t.used_in.length === 0 ? <span className="text-slate-400">Not used by any workflow yet</span> : (
-                        <ul className="space-y-0.5 text-slate-600">
-                          {t.used_in.slice(0, 6).map((u, i) => (
-                            <li key={i} className="flex items-center gap-1.5">
-                              {u.stage ? <span className="rounded bg-brand-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-brand-700">{titleCase(u.stage)}</span>
-                                : u.kind === "intake" ? <span className="rounded bg-brand-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-brand-700">Intake</span> : null}
-                              <span className="truncate">{u.where}</span>
-                            </li>
-                          ))}
-                          {t.used_in.length > 6 && <li className="text-slate-400">and {t.used_in.length - 6} more</li>}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={async () => {
-                        const ok = await confirm({
-                          title: `Delete ${t.name}?`,
-                          message: "Requests already assigned stay put. A team still used by a workflow can't be deleted.",
-                          confirmLabel: "Delete",
-                          tone: "danger",
-                        });
-                        if (ok) del.mutate(t.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </CardBody>
-      </Card>
+      <TeamsView
+        teams={teams ?? []}
+        users={users ?? []}
+        onMembers={async (t, members) => {
+          try {
+            await intakeApi.updateTeam(t.id, { members });
+            invalidate();
+          } catch (e) {
+            notify(e instanceof Error ? e.message : "Update failed", "error");
+          }
+        }}
+        onActive={async (t, on) => {
+          try {
+            await intakeApi.updateTeam(t.id, { active: on });
+            invalidate();
+            notify(on ? `${t.name} is taking work again` : `${t.name} is paused`, "success");
+          } catch (e) {
+            notify(e instanceof Error ? e.message : "Update failed", "error");
+          }
+        }}
+        onNew={() => setEditing("new")}
+        onEdit={(t) => setEditing(t)}
+        onDelete={async (t) => {
+          const ok = await confirm({
+            title: `Delete ${t.name}?`,
+            message: "Requests already assigned stay put. A team still used by a workflow can't be deleted.",
+            confirmLabel: "Delete",
+            tone: "danger",
+          });
+          if (ok) del.mutate(t.id);
+        }}
+      />
       {editing && (
         <TeamModal
           team={editing === "new" ? null : editing}
@@ -2251,89 +1663,32 @@ function TeamModal({ team, users, teams, onClose, onSaved }: {
   const canSave = name.trim() && (team || key.trim());
 
   return (
-    <Modal open onClose={onClose} title={team ? `Edit ${team.name}` : "New team"} size="lg">
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Commercial Legal" />
-          </Field>
-          {team ? (
-            <Field label="Key"><Input value={team.key} disabled /></Field>
-          ) : (
-            <Field label="Key" hint="lowercase id, e.g. commercial">
-              <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="commercial" />
-            </Field>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="How work is shared">
-            <Select value={strategy} onChange={(e) => setStrategy(e.target.value as IntakeTeam["strategy"])}>
-              <option value="least_loaded">Fewest open items first</option>
-              <option value="round_robin">Taking turns</option>
-            </Select>
-          </Field>
-          <Field label="When everyone is full" hint="The team that takes over.">
-            <Select value={overflow} onChange={(e) => setOverflow(e.target.value)}>
-              <option value="">None</option>
-              {teams.filter((t) => t.id !== team?.id).map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={defaultIntake} disabled={!!team?.is_default_intake}
-            onChange={(e) => setDefaultIntake(e.target.checked)} />
-          Default intake team — owns new requests no team&apos;s expertise matches
-        </label>
-        <Field label="Expertise" hint="Matter types this team handles. The triage routes a request here when its category matches.">
-          <Chips options={MATTER_CATEGORIES} selected={expertise} onToggle={(v) => toggle(expertise, setExpertise, v)} />
-        </Field>
-        <Field label="Serves (business units)" hint="Requesting departments this team supports. Blank = serves all.">
-          <Chips options={BUSINESS_UNITS} selected={departments} onToggle={(v) => toggle(departments, setDepartments, v)} />
-        </Field>
-        <Field label="Members">
-          <div className="space-y-2">
-            {members.map((m, i) => {
-              const u = users.find((x) => x.id === m.user_id);
-              return (
-                <div key={m.user_id} className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm text-slate-700">{u ? u.full_name : m.user_id}</span>
-                  <span className="text-xs text-slate-400">capacity</span>
-                  <Input
-                    type="number"
-                    className="w-20"
-                    value={String(m.capacity)}
-                    onChange={(e) =>
-                      setMembers(members.map((x, j) => (j === i ? { ...x, capacity: Number(e.target.value) || 0 } : x)))
-                    }
-                  />
-                  <Button variant="ghost" size="sm" onClick={() => setMembers(members.filter((_, j) => j !== i))}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              );
-            })}
-            {addable.length > 0 && (
-              <Select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) setMembers([...members, { user_id: e.target.value, capacity: 8 }]);
-                }}
-              >
-                <option value="">+ Add member…</option>
-                {addable.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-              </Select>
-            )}
-          </div>
-        </Field>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!canSave}>
-            {team ? "Save" : "Create team"}
-          </Button>
-        </div>
-      </div>
-    </Modal>
+    <TeamEditorUI
+      team={team}
+      name={name}
+      setName={setName}
+      keyVal={key}
+      setKey={setKey}
+      strategy={strategy}
+      setStrategy={setStrategy}
+      overflow={overflow}
+      setOverflow={setOverflow}
+      teams={teams}
+      defaultIntake={defaultIntake}
+      setDefaultIntake={setDefaultIntake}
+      expertise={expertise}
+      departments={departments}
+      onExpertise={(v) => toggle(expertise, setExpertise, v)}
+      onDepartments={(v) => toggle(departments, setDepartments, v)}
+      categories={MATTER_CATEGORIES}
+      units={BUSINESS_UNITS}
+      members={members}
+      setMembers={setMembers}
+      users={users}
+      busy={save.isPending}
+      canSave={!!canSave}
+      onSave={() => save.mutate()}
+      onClose={onClose}
+    />
   );
 }

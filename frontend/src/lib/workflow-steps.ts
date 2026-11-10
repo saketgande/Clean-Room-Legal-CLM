@@ -7,6 +7,7 @@
 // nobody a button to finish the one that is actually waiting.
 
 import type { WorkflowRun, WorkflowRunStep } from "./types";
+import { RISK_UNKNOWN_LABEL } from "./utils";
 
 const FINISHED = new Set(["done", "complete", "skipped", "failed"]);
 
@@ -53,4 +54,60 @@ export function stepAfter(run: RunSteps | null | undefined, step: WorkflowRunSte
   if (others.length > 0) return others[0];
   const lastIdx = group.length > 0 ? group[group.length - 1].idx : step.idx;
   return (run.steps ?? []).find((s) => s.idx === lastIdx + 1) ?? null;
+}
+
+const PLAIN_NAMES: Record<string, string> = {
+  "Clm Draft": "Prepare draft", clm_draft: "Prepare draft",
+  "Ai Task": "AI check", ai_task: "AI check",
+  "Human Task": "Review", human_task: "Review",
+  Counterparty: "Negotiation", counterparty: "Negotiation",
+  Notify: "Notify people", notify: "Notify people",
+  approval: "Approval", signature: "Signature",
+};
+
+/** A step name a requester understands. Unnamed steps are saved as the title-cased type ("Clm Draft") or the raw key. */
+export function plainStepName(name: string | null | undefined, type?: string | null): string {
+  const n = (name ?? "").trim();
+  if (!n) return (type && PLAIN_NAMES[type]) || "Step";
+  return PLAIN_NAMES[n] ?? n;
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function driverText(d: unknown): string | null {
+  if (typeof d === "string") return d.trim() || null;
+  if (!d || typeof d !== "object") return null;
+  const o = d as Record<string, unknown>;
+  const text = [o.issue, o.what, o.label, o.name].find((v) => typeof v === "string" && v.trim()) as string | undefined;
+  if (!text) return null;
+  const sev = typeof o.severity === "string" && o.severity ? `${cap(o.severity)} · ` : "";
+  const date = typeof o.date === "string" && o.date ? ` (${o.date})` : "";
+  return `${sev}${text}${date}`;
+}
+
+/** A step's result as readable label/value pairs, never raw JSON. */
+export function readableResult(res: Record<string, unknown> | null | undefined): [string, string][] {
+  if (!res || typeof res !== "object") return [];
+  const rows: [string, string][] = [];
+  const push = (k: string, v: unknown) => { if (v != null && v !== "") rows.push([k, String(v)]); };
+  const words = (v: unknown) => (typeof v === "string" ? v.replace(/_/g, " ") : v);
+  if (res.risk_band) push("Risk", res.risk_band === "unknown" ? RISK_UNKNOWN_LABEL : cap(String(res.risk_band)));
+  if (res.confidence != null && !Number.isNaN(Number(res.confidence))) push("Confidence", `${Math.round(Number(res.confidence) * 100)}%`);
+  push("Category", words(res.category));
+  push("Matter", words(res.matter_type));
+  push("Severity", res.severity);
+  if (res.notification_required != null) push("Breach notice", res.notification_required ? "required" : "not required");
+  push("Summary", res.summary);
+  const list = [res.top_drivers, res.affected_data_categories, res.statutory_deadlines].find((v) => Array.isArray(v) && v.length);
+  if (Array.isArray(list)) {
+    const items = list.map(driverText).filter((t): t is string => !!t).slice(0, 3);
+    if (items.length) push("Drivers", items.join("; "));
+  }
+  return rows;
+}
+
+/** "Overdue 2 days" once a whole day late, plain "Overdue" before that. */
+export function overdueWords(due: Date, now: number = Date.now()): string {
+  const days = Math.floor((now - due.getTime()) / 86_400_000);
+  return days >= 1 ? `Overdue ${days} ${days === 1 ? "day" : "days"}` : "Overdue";
 }

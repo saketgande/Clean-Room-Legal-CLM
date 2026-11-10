@@ -38,6 +38,10 @@ class FakeDB:
     def scalars(self, _stmt):
         return _Rows(self.batches.pop(0))
 
+    def execute(self, _stmt):
+        # The sweep that closes orphaned AI runs is one UPDATE; its own tests use a real database.
+        return SimpleNamespace(rowcount=0)
+
     def get(self, _model, key):
         return self.cells.get(key)
 

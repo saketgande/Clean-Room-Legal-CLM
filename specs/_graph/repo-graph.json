@@ -517,6 +517,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:contractsApi.reviewHistory",
+      "matched": true,
+      "to": "endpoint:contracts:GET:/contracts/{contract_id}/review-history",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:contractsApi.reviewStatus",
       "matched": true,
       "to": "endpoint:contracts:GET:/contracts/{contract_id}/review-status",
@@ -532,6 +538,12 @@
       "from": "endpoint_client_fn:contractsApi.risk",
       "matched": true,
       "to": "endpoint:contracts:GET:/contracts/{contract_id}/risk",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:contractsApi.setType",
+      "matched": true,
+      "to": "endpoint:contracts:PUT:/contracts/{contract_id}/type",
       "type": "calls"
     },
     {
@@ -556,6 +568,18 @@
       "from": "endpoint_client_fn:contractsApi.transition",
       "matched": true,
       "to": "endpoint:contracts:POST:/contracts/{contract_id}/lifecycle",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:contractsApi.typeNeeded",
+      "matched": true,
+      "to": "endpoint:contracts:GET:/contracts/type-needed",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:contractsApi.types",
+      "matched": true,
+      "to": "endpoint:contracts:GET:/contracts/types",
       "type": "calls"
     },
     {
@@ -625,6 +649,36 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:draftingTemplatesApi.adoptStandardPlaybook",
+      "matched": true,
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/playbook/standard",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.check",
+      "matched": true,
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/checks",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.checkAll",
+      "matched": true,
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/check-all",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.checkDetail",
+      "matched": true,
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks/{check_id}",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.checks",
+      "matched": true,
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:draftingTemplatesApi.get",
       "matched": true,
       "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}",
@@ -632,8 +686,14 @@
     },
     {
       "from": "endpoint_client_fn:draftingTemplatesApi.list",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.options",
       "matched": true,
-      "to": "endpoint:drafting_templates:GET:/drafting-templates",
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/options",
       "type": "calls"
     },
     {
@@ -649,9 +709,21 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:draftingTemplatesApi.restore",
+      "matched": true,
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/versions/{version}/restore",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:draftingTemplatesApi.save",
       "matched": true,
       "to": "endpoint:drafting_templates:PUT:/drafting-templates/{key}",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:draftingTemplatesApi.setPlaybook",
+      "matched": true,
+      "to": "endpoint:drafting_templates:PUT:/drafting-templates/{key}/playbook",
       "type": "calls"
     },
     {
@@ -685,6 +757,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:intakeApi.activity",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:intakeApi.approvalChain",
       "matched": true,
       "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
@@ -697,6 +775,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:intakeApi.approvalSummary",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:intakeApi.assignToMe",
       "matched": true,
       "to": "endpoint:intake:POST:/intake/requests/{request_id}/assign-to-me",
@@ -706,6 +790,12 @@
       "from": "endpoint_client_fn:intakeApi.assignees",
       "matched": true,
       "to": "endpoint:intake:GET:/intake/assignees",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:intakeApi.counterparty",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
       "type": "calls"
     },
     {
@@ -844,6 +934,12 @@
       "from": "endpoint_client_fn:intakeApi.promote",
       "matched": true,
       "to": "endpoint:intake:POST:/intake/requests/{request_id}/promote",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:intakeApi.requestSummary",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/summary",
       "type": "calls"
     },
     {
@@ -1102,6 +1198,12 @@
       "from": "endpoint_client_fn:obligationsApi.runReminders",
       "matched": true,
       "to": "endpoint:obligations:POST:/obligations/run-reminders",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:obligationsApi.summary",
+      "matched": true,
+      "to": "endpoint:obligations:GET:/obligations/summary",
       "type": "calls"
     },
     {
@@ -1561,9 +1663,21 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:trademarksApi.activity",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:trademarksApi.atRisk",
       "matched": true,
       "to": "endpoint:trademarks:GET:/trademarks/reports/at-risk",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.byRequest",
+      "matched": false,
+      "to": null,
       "type": "calls"
     },
     {
@@ -1621,6 +1735,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:trademarksApi.exportSearchRun",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:trademarksApi.extractFields",
       "matched": true,
       "to": "endpoint:trademarks:POST:/trademarks/documents/extract",
@@ -1657,6 +1777,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:trademarksApi.openResponse",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:trademarksApi.portfolioStats",
       "matched": true,
       "to": "endpoint:trademarks:GET:/trademarks/reports/stats",
@@ -1669,9 +1795,39 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:trademarksApi.postFilingUpdate",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.recordDecision",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.recordFiling",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:trademarksApi.regenerateDigest",
       "matched": true,
       "to": "endpoint:trademarks:POST:/trademarks/reports/digest/regenerate",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.searchRun",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.searchRuns",
+      "matched": false,
+      "to": null,
       "type": "calls"
     },
     {
@@ -1690,6 +1846,12 @@
       "from": "endpoint_client_fn:trademarksApi.update",
       "matched": true,
       "to": "endpoint:trademarks:PATCH:/trademarks/{trademark_id}",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.updateSearchRun",
+      "matched": false,
+      "to": null,
       "type": "calls"
     },
     {
@@ -2641,6 +2803,16 @@
     },
     {
       "from": "domain:backend:contracts",
+      "to": "endpoint:contracts:GET:/contracts/type-needed",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contracts",
+      "to": "endpoint:contracts:GET:/contracts/types",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contracts",
       "to": "endpoint:contracts:GET:/contracts/{contract_id}",
       "type": "contains"
     },
@@ -2667,6 +2839,11 @@
     {
       "from": "domain:backend:contracts",
       "to": "endpoint:contracts:GET:/contracts/{contract_id}/plain-summary",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contracts",
+      "to": "endpoint:contracts:GET:/contracts/{contract_id}/review-history",
       "type": "contains"
     },
     {
@@ -2722,6 +2899,11 @@
     {
       "from": "domain:backend:contracts",
       "to": "endpoint:contracts:POST:/contracts/{contract_id}/risk",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contracts",
+      "to": "endpoint:contracts:PUT:/contracts/{contract_id}/type",
       "type": "contains"
     },
     {
@@ -2821,12 +3003,42 @@
     },
     {
       "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/options",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
       "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}",
       "type": "contains"
     },
     {
       "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks/{check_id}",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
       "to": "endpoint:drafting_templates:GET:/drafting-templates/{key}/versions",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/check-all",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/checks",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/playbook/standard",
       "type": "contains"
     },
     {
@@ -2841,7 +3053,27 @@
     },
     {
       "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:POST:/drafting-templates/{key}/versions/{version}/restore",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
       "to": "endpoint:drafting_templates:PUT:/drafting-templates/{key}",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "endpoint:drafting_templates:PUT:/drafting-templates/{key}/playbook",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "model:drafting_templates:DraftingTemplateCheck",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:drafting_templates",
+      "to": "model:drafting_templates:DraftingTemplateType",
       "type": "contains"
     },
     {
@@ -2926,7 +3158,22 @@
     },
     {
       "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
       "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
       "type": "contains"
     },
     {
@@ -2942,6 +3189,11 @@
     {
       "from": "domain:backend:intake",
       "to": "endpoint:intake:GET:/intake/requests/{request_id}/sla",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/summary",
       "type": "contains"
     },
     {
@@ -3377,6 +3629,11 @@
     {
       "from": "domain:backend:obligations",
       "to": "endpoint:obligations:GET:/obligations",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:obligations",
+      "to": "endpoint:obligations:GET:/obligations/summary",
       "type": "contains"
     },
     {
@@ -4305,11 +4562,6 @@
       "type": "contains"
     },
     {
-      "from": "domain:frontend:search",
-      "to": "page:/search",
-      "type": "contains"
-    },
-    {
       "from": "domain:frontend:signatures",
       "to": "page:/signatures",
       "type": "contains"
@@ -5155,6 +5407,13 @@
       "type": "fk"
     },
     {
+      "column": "review_playbook_id",
+      "from": "model:contracts:Contract",
+      "resolved": true,
+      "to": "model:playbooks:Playbook",
+      "type": "fk"
+    },
+    {
       "column": "contract_id",
       "from": "model:contracts:ContractParty",
       "resolved": true,
@@ -5173,6 +5432,27 @@
       "from": "model:contracts:ContractStageHistory",
       "resolved": true,
       "to": "model:contracts:Contract",
+      "type": "fk"
+    },
+    {
+      "column": "playbook_id",
+      "from": "model:drafting_templates:DraftingTemplateCheck",
+      "resolved": true,
+      "to": "model:playbooks:Playbook",
+      "type": "fk"
+    },
+    {
+      "column": "playbook_version_id",
+      "from": "model:drafting_templates:DraftingTemplateCheck",
+      "resolved": true,
+      "to": "model:playbooks:PlaybookVersion",
+      "type": "fk"
+    },
+    {
+      "column": "playbook_id",
+      "from": "model:drafting_templates:DraftingTemplateType",
+      "resolved": true,
+      "to": "model:playbooks:Playbook",
       "type": "fk"
     },
     {
@@ -5624,24 +5904,10 @@
       "type": "fk"
     },
     {
-      "column": "ingested_trademark_id",
-      "from": "model:trademarks:DocumentExtract",
-      "resolved": true,
-      "to": "model:trademarks:Trademark",
-      "type": "fk"
-    },
-    {
       "column": "source_intake_request_id",
       "from": "model:trademarks:Trademark",
       "resolved": true,
       "to": "model:intake:IntakeRequest",
-      "type": "fk"
-    },
-    {
-      "column": "source_document_extract_id",
-      "from": "model:trademarks:Trademark",
-      "resolved": true,
-      "to": "model:trademarks:DocumentExtract",
       "type": "fk"
     },
     {
@@ -5750,12 +6016,6 @@
       "confidence": "exact",
       "from": "domain:backend:drafting_templates",
       "to": "endpoint_client_group:draftingTemplatesApi",
-      "type": "frontend_counterpart"
-    },
-    {
-      "confidence": "heuristic",
-      "from": "domain:backend:flows",
-      "to": "endpoint_client_group:workflowsApi",
       "type": "frontend_counterpart"
     },
     {
@@ -6182,6 +6442,11 @@
       "type": "migration_down"
     },
     {
+      "from": "migration:0050_extract_only_ingest",
+      "to": "migration:0049_trademark_menu_labels",
+      "type": "migration_down"
+    },
+    {
       "from": "migration:0050_parties_master_records",
       "to": "migration:0049_intake_drafts",
       "type": "migration_down"
@@ -6189,6 +6454,11 @@
     {
       "from": "migration:0051_contract_party_links",
       "to": "migration:0050_parties_master_records",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0051_trademark_clearance",
+      "to": "migration:0050_extract_only_ingest",
       "type": "migration_down"
     },
     {
@@ -6315,29 +6585,104 @@
       "from": "migration:0074_intake_agent_filing",
       "to": "migration:0073_merge_trademark_suite",
       "type": "migration_down"
+    },
+    {
+      "from": "migration:0074_merge_clearance",
+      "to": "migration:0051_trademark_clearance",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0074_merge_clearance",
+      "to": "migration:0073_merge_trademark_suite",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0074_template_sync",
+      "to": "migration:0073_merge_trademark_suite",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0075_merge_agent_filing",
+      "to": "migration:0074_intake_agent_filing",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0075_merge_agent_filing",
+      "to": "migration:0074_merge_clearance",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0075_nda_check",
+      "to": "migration:0074_merge_clearance",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0075_nda_check",
+      "to": "migration:0074_template_sync",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0076_post_filing_tracking",
+      "to": "migration:0075_merge_agent_filing",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0076_request_summary",
+      "to": "migration:0075_nda_check",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0077_obligation_edit_roles",
+      "to": "migration:0076_request_summary",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0077_std_paper",
+      "to": "migration:0077_obligation_edit_roles",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0078_activate_step_wording",
+      "to": "migration:0077_std_paper",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0079_drop_nda_check",
+      "to": "migration:0078_activate_step_wording",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0080_merge_drl_saket",
+      "to": "migration:0076_post_filing_tracking",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0080_merge_drl_saket",
+      "to": "migration:0079_drop_nda_check",
+      "type": "migration_down"
     }
   ],
   "metadata": {
     "counts": {
       "celery_task": 5,
-      "domain_backend": 42,
-      "domain_frontend": 26,
-      "edges_total": 1121,
-      "endpoint": 355,
-      "endpoint_client_fn": 309,
+      "domain_backend": 39,
+      "domain_frontend": 25,
+      "edges_total": 1184,
+      "endpoint": 372,
+      "endpoint_client_fn": 336,
       "endpoint_client_group": 36,
       "integration": 5,
-      "migration": 86,
-      "model": 102,
-      "page": 39,
-      "schema": 231,
-      "ts_interface": 254,
+      "migration": 99,
+      "model": 104,
+      "page": 38,
+      "schema": 290,
+      "ts_interface": 323,
       "ui_primitive": 29
     },
-    "generated_at": "2026-10-26T12:57:21Z",
-    "git_head": "b343542f1e5a638bf942cd24ef922f755a38df20",
+    "generated_at": "2026-11-04T13:56:18Z",
+    "git_head": "2ecd03ba6e2cd8935bf374ecff6d203b9b3d05e6",
     "warnings": [
-      "48 frontend client call(s) did not match any backend endpoint by method+path",
+      "59 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'delegationsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'externalShareApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6349,13 +6694,11 @@
       "no frontend Api group matched for backend domain 'analytics' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'docstudio' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'documents' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'ideal' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'matters' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'organizations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'projects' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'prompt_library' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'word_addin' (add an entry to specs/_graph/domain-aliases.json to resolve)"
     ]
@@ -6590,6 +6933,16 @@
     },
     {
       "files": [],
+      "id": "domain:backend:docstudio",
+      "name": "docstudio",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/docstudio",
+      "type": "domain_backend"
+    },
+    {
+      "files": [],
       "id": "domain:backend:documents",
       "name": "documents",
       "owner_agents": [
@@ -6602,7 +6955,8 @@
       "files": [
         "models.py",
         "routes.py",
-        "service.py"
+        "service.py",
+        "schemas.py"
       ],
       "id": "domain:backend:drafting_templates",
       "name": "drafting_templates",
@@ -6611,16 +6965,6 @@
         "db-engineer"
       ],
       "path": "backend/app/drafting_templates",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
-      "id": "domain:backend:flows",
-      "name": "flows",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/flows",
       "type": "domain_backend"
     },
     {
@@ -6637,16 +6981,6 @@
         "db-engineer"
       ],
       "path": "backend/app/grants",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
-      "id": "domain:backend:ideal",
-      "name": "ideal",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/ideal",
       "type": "domain_backend"
     },
     {
@@ -6688,16 +7022,6 @@
         "db-engineer"
       ],
       "path": "backend/app/jobs",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
-      "id": "domain:backend:matters",
-      "name": "matters",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/matters",
       "type": "domain_backend"
     },
     {
@@ -6835,16 +7159,6 @@
         "db-engineer"
       ],
       "path": "backend/app/playbooks",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
-      "id": "domain:backend:projects",
-      "name": "projects",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/projects",
       "type": "domain_backend"
     },
     {
@@ -7107,12 +7421,6 @@
       "id": "domain:frontend:screen-access",
       "name": "screen-access",
       "path": "frontend/src/app/(app)/screen-access",
-      "type": "domain_frontend"
-    },
-    {
-      "id": "domain:frontend:search",
-      "name": "search",
-      "path": "frontend/src/app/(app)/search",
       "type": "domain_frontend"
     },
     {
@@ -8408,6 +8716,28 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/routes.py",
+      "id": "endpoint:contracts:GET:/contracts/type-needed",
+      "method": "GET",
+      "path": "/contracts/type-needed",
+      "permission": "contract:read",
+      "request_model": null,
+      "response_model": "TypeNeededResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/routes.py",
+      "id": "endpoint:contracts:GET:/contracts/types",
+      "method": "GET",
+      "path": "/contracts/types",
+      "permission": "contract:read",
+      "request_model": null,
+      "response_model": "list[ContractTypeOption]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/routes.py",
       "id": "endpoint:contracts:GET:/contracts/{contract_id}",
       "method": "GET",
       "path": "/contracts/{contract_id}",
@@ -8466,6 +8796,17 @@
       "id": "endpoint:contracts:GET:/contracts/{contract_id}/plain-summary",
       "method": "GET",
       "path": "/contracts/{contract_id}/plain-summary",
+      "permission": "contract:read",
+      "request_model": null,
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/routes.py",
+      "id": "endpoint:contracts:GET:/contracts/{contract_id}/review-history",
+      "method": "GET",
+      "path": "/contracts/{contract_id}/review-history",
       "permission": "contract:read",
       "request_model": null,
       "response_model": null,
@@ -8593,6 +8934,17 @@
       "type": "endpoint"
     },
     {
+      "domain": "contracts",
+      "file": "backend/app/contracts/routes.py",
+      "id": "endpoint:contracts:PUT:/contracts/{contract_id}/type",
+      "method": "PUT",
+      "path": "/contracts/{contract_id}/type",
+      "permission": "contract:update",
+      "request_model": "ContractTypeSet",
+      "response_model": "ContractResponse",
+      "type": "endpoint"
+    },
+    {
       "domain": "debug",
       "file": "backend/app/debug/routes.py",
       "id": "endpoint:debug:GET:/debug/ai-calls/{ai_call_id}",
@@ -8699,7 +9051,18 @@
       "path": "/drafting-templates",
       "permission": "playbook:read",
       "request_model": null,
-      "response_model": null,
+      "response_model": "list[DraftingTemplateSummaryOut]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:GET:/drafting-templates/options",
+      "method": "GET",
+      "path": "/drafting-templates/options",
+      "permission": "playbook:read",
+      "request_model": null,
+      "response_model": "TemplateTypeOptionsOut",
       "type": "endpoint"
     },
     {
@@ -8710,7 +9073,29 @@
       "path": "/drafting-templates/{key}",
       "permission": "playbook:read",
       "request_model": null,
-      "response_model": null,
+      "response_model": "DraftingTemplateOut",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks",
+      "method": "GET",
+      "path": "/drafting-templates/{key}/checks",
+      "permission": "playbook:read",
+      "request_model": null,
+      "response_model": "list[TemplateCheckOut]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:GET:/drafting-templates/{key}/checks/{check_id}",
+      "method": "GET",
+      "path": "/drafting-templates/{key}/checks/{check_id}",
+      "permission": "playbook:read",
+      "request_model": null,
+      "response_model": "TemplateCheckOut",
       "type": "endpoint"
     },
     {
@@ -8721,7 +9106,40 @@
       "path": "/drafting-templates/{key}/versions",
       "permission": "playbook:read",
       "request_model": null,
-      "response_model": null,
+      "response_model": "list[DraftingTemplateVersionOut]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:POST:/drafting-templates/check-all",
+      "method": "POST",
+      "path": "/drafting-templates/check-all",
+      "permission": "playbook:run",
+      "request_model": null,
+      "response_model": "CheckAllResultOut",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:POST:/drafting-templates/{key}/checks",
+      "method": "POST",
+      "path": "/drafting-templates/{key}/checks",
+      "permission": "playbook:run",
+      "request_model": "TemplateCheckRequest | None",
+      "response_model": "TemplateCheckOut",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:POST:/drafting-templates/{key}/playbook/standard",
+      "method": "POST",
+      "path": "/drafting-templates/{key}/playbook/standard",
+      "permission": "playbook:publish",
+      "request_model": "TemplateStandardAdopt",
+      "response_model": "TemplateMutationResultOut",
       "type": "endpoint"
     },
     {
@@ -8731,8 +9149,8 @@
       "method": "POST",
       "path": "/drafting-templates/{key}/preview",
       "permission": "playbook:read",
-      "request_model": "TemplatePreview",
-      "response_model": null,
+      "request_model": "TemplatePreviewRequest",
+      "response_model": "TemplatePreviewOut",
       "type": "endpoint"
     },
     {
@@ -8742,8 +9160,19 @@
       "method": "POST",
       "path": "/drafting-templates/{key}/reset",
       "permission": "playbook:update",
-      "request_model": "TemplateReset",
-      "response_model": null,
+      "request_model": "TemplateVersionAction",
+      "response_model": "TemplateMutationResultOut",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:POST:/drafting-templates/{key}/versions/{version}/restore",
+      "method": "POST",
+      "path": "/drafting-templates/{key}/versions/{version}/restore",
+      "permission": "playbook:update",
+      "request_model": "TemplateVersionAction",
+      "response_model": "TemplateMutationResultOut",
       "type": "endpoint"
     },
     {
@@ -8753,8 +9182,19 @@
       "method": "PUT",
       "path": "/drafting-templates/{key}",
       "permission": "playbook:update",
-      "request_model": "TemplateSave",
-      "response_model": null,
+      "request_model": "TemplateSaveRequest",
+      "response_model": "TemplateMutationResultOut",
+      "type": "endpoint"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/routes.py",
+      "id": "endpoint:drafting_templates:PUT:/drafting-templates/{key}/playbook",
+      "method": "PUT",
+      "path": "/drafting-templates/{key}/playbook",
+      "permission": "playbook:update",
+      "request_model": "TemplatePlaybookChange",
+      "response_model": "TemplateMutationResultOut",
       "type": "endpoint"
     },
     {
@@ -8914,12 +9354,45 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/activity",
+      "permission": null,
+      "request_model": null,
+      "response_model": "RequestActivityResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
       "id": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
       "method": "GET",
       "path": "/intake/requests/{request_id}/approval-chain",
       "permission": null,
       "request_model": null,
       "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/approval-summary",
+      "permission": null,
+      "request_model": "str | None",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/counterparty",
+      "permission": null,
+      "request_model": null,
+      "response_model": "RequestCounterpartyResponse",
       "type": "endpoint"
     },
     {
@@ -8953,6 +9426,17 @@
       "permission": null,
       "request_model": "Response",
       "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/summary",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/summary",
+      "permission": null,
+      "request_model": null,
+      "response_model": "RequestSummaryResponse",
       "type": "endpoint"
     },
     {
@@ -9117,7 +9601,7 @@
       "path": "/intake/requests/{request_id}/draft-contract",
       "permission": null,
       "request_model": null,
-      "response_model": "RequestResponse",
+      "response_model": "DraftContractResponse",
       "type": "endpoint"
     },
     {
@@ -9623,6 +10107,17 @@
       "path": "/obligations",
       "permission": "obligation:read",
       "request_model": "str | None",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "obligations",
+      "file": "backend/app/obligations/routes.py",
+      "id": "endpoint:obligations:GET:/obligations/summary",
+      "method": "GET",
+      "path": "/obligations/summary",
+      "permission": "obligation:read",
+      "request_model": null,
       "response_model": null,
       "type": "endpoint"
     },
@@ -12006,6 +12501,17 @@
       "download": false,
       "group": "contractsApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:contractsApi.reviewHistory",
+      "method_name": "reviewHistory",
+      "path_normalized": "/contracts/{param}/review-history",
+      "path_template": "/contracts/${id}/review-history",
+      "response_type": "ReviewHistoryVersion[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:contractsApi.reviewStatus",
       "method_name": "reviewStatus",
       "path_normalized": "/contracts/{param}/review-status",
@@ -12033,6 +12539,17 @@
       "path_normalized": "/contracts/{param}/risk",
       "path_template": "/contracts/${id}/risk",
       "response_type": "ContractRiskSummary",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "PUT",
+      "id": "endpoint_client_fn:contractsApi.setType",
+      "method_name": "setType",
+      "path_normalized": "/contracts/{param}/type",
+      "path_template": "/contracts/${id}/type",
+      "response_type": "ContractResponse",
       "type": "endpoint_client_fn"
     },
     {
@@ -12077,6 +12594,28 @@
       "path_normalized": "/contracts/{param}/lifecycle",
       "path_template": "/contracts/${id}/lifecycle",
       "response_type": "ContractResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:contractsApi.typeNeeded",
+      "method_name": "typeNeeded",
+      "path_normalized": "/contracts/type-needed",
+      "path_template": "/contracts/type-needed",
+      "response_type": "TypeNeededList",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:contractsApi.types",
+      "method_name": "types",
+      "path_normalized": "/contracts/types",
+      "path_template": "/contracts/types",
+      "response_type": "ContractTypeOption[]",
       "type": "endpoint_client_fn"
     },
     {
@@ -12203,6 +12742,61 @@
     {
       "download": false,
       "group": "draftingTemplatesApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:draftingTemplatesApi.adoptStandardPlaybook",
+      "method_name": "adoptStandardPlaybook",
+      "path_normalized": "/drafting-templates/{param}/playbook/standard",
+      "path_template": "/drafting-templates/${key}/playbook/standard",
+      "response_type": "TemplateMutationResult",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:draftingTemplatesApi.check",
+      "method_name": "check",
+      "path_normalized": "/drafting-templates/{param}/checks",
+      "path_template": "/drafting-templates/${key}/checks",
+      "response_type": "TemplateCheck",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:draftingTemplatesApi.checkAll",
+      "method_name": "checkAll",
+      "path_normalized": "/drafting-templates/check-all",
+      "path_template": "/drafting-templates/check-all",
+      "response_type": "CheckAllResult",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:draftingTemplatesApi.checkDetail",
+      "method_name": "checkDetail",
+      "path_normalized": "/drafting-templates/{param}/checks/{param}",
+      "path_template": "/drafting-templates/${key}/checks/${checkId}",
+      "response_type": "TemplateCheck",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:draftingTemplatesApi.checks",
+      "method_name": "checks",
+      "path_normalized": "/drafting-templates/{param}/checks",
+      "path_template": "/drafting-templates/${key}/checks",
+      "response_type": "TemplateCheck[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
       "http_method": "GET",
       "id": "endpoint_client_fn:draftingTemplatesApi.get",
       "method_name": "get",
@@ -12217,9 +12811,20 @@
       "http_method": "GET",
       "id": "endpoint_client_fn:draftingTemplatesApi.list",
       "method_name": "list",
-      "path_normalized": "/drafting-templates",
-      "path_template": "/drafting-templates",
+      "path_normalized": "/drafting-templates{param}",
+      "path_template": "/drafting-templates${includeRetired === true ? \"?include_retired=true\" : \"\"}",
       "response_type": "DraftingTemplateSummary[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:draftingTemplatesApi.options",
+      "method_name": "options",
+      "path_normalized": "/drafting-templates/options",
+      "path_template": "/drafting-templates/options",
+      "response_type": "TemplateTypeOptions",
       "type": "endpoint_client_fn"
     },
     {
@@ -12241,7 +12846,18 @@
       "method_name": "reset",
       "path_normalized": "/drafting-templates/{param}/reset",
       "path_template": "/drafting-templates/${key}/reset",
-      "response_type": "DraftingTemplate",
+      "response_type": "TemplateMutationResult",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:draftingTemplatesApi.restore",
+      "method_name": "restore",
+      "path_normalized": "/drafting-templates/{param}/versions/{param}/restore",
+      "path_template": "/drafting-templates/${key}/versions/${version}/restore",
+      "response_type": "TemplateMutationResult",
       "type": "endpoint_client_fn"
     },
     {
@@ -12252,7 +12868,18 @@
       "method_name": "save",
       "path_normalized": "/drafting-templates/{param}",
       "path_template": "/drafting-templates/${key}",
-      "response_type": "DraftingTemplate",
+      "response_type": "TemplateMutationResult",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "draftingTemplatesApi",
+      "http_method": "PUT",
+      "id": "endpoint_client_fn:draftingTemplatesApi.setPlaybook",
+      "method_name": "setPlaybook",
+      "path_normalized": "/drafting-templates/{param}/playbook",
+      "path_template": "/drafting-templates/${key}/playbook",
+      "response_type": "TemplateMutationResult",
       "type": "endpoint_client_fn"
     },
     {
@@ -12314,6 +12941,17 @@
       "download": false,
       "group": "intakeApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.activity",
+      "method_name": "activity",
+      "path_normalized": "/intake/requests/{param}/activity",
+      "path_template": "/intake/requests/${id}/activity",
+      "response_type": "RequestActivity",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:intakeApi.approvalChain",
       "method_name": "approvalChain",
       "path_normalized": "/intake/requests/{param}/approval-chain",
@@ -12330,6 +12968,17 @@
       "path_normalized": "/intake/approval-preview",
       "path_template": "/intake/approval-preview",
       "response_type": "IntakeApprovalPreview",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.approvalSummary",
+      "method_name": "approvalSummary",
+      "path_normalized": "/intake/requests/{param}/approval-summary",
+      "path_template": "/intake/requests/${id}/approval-summary",
+      "response_type": "ApprovalSummary",
       "type": "endpoint_client_fn"
     },
     {
@@ -12352,6 +13001,17 @@
       "path_normalized": "/intake/assignees",
       "path_template": "/intake/assignees",
       "response_type": "IntakeAssignee[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.counterparty",
+      "method_name": "counterparty",
+      "path_normalized": "/intake/requests/{param}/counterparty",
+      "path_template": "/intake/requests/${id}/counterparty",
+      "response_type": "RequestCounterparty",
       "type": "endpoint_client_fn"
     },
     {
@@ -12450,7 +13110,7 @@
       "method_name": "draftContract",
       "path_normalized": "/intake/requests/{param}/draft-contract",
       "path_template": "/intake/requests/${id}/draft-contract",
-      "response_type": "IntakeRequest",
+      "response_type": "DraftContractResult",
       "type": "endpoint_client_fn"
     },
     {
@@ -12605,6 +13265,17 @@
       "path_normalized": "/intake/requests/{param}/promote",
       "path_template": "/intake/requests/${id}/promote",
       "response_type": "IntakeRequest",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.requestSummary",
+      "method_name": "requestSummary",
+      "path_normalized": "/intake/requests/{param}/summary",
+      "path_template": "/intake/requests/${id}/summary",
+      "response_type": "RequestSummary",
       "type": "endpoint_client_fn"
     },
     {
@@ -13055,7 +13726,7 @@
       "method_name": "extract",
       "path_normalized": "/obligations/extract{param})}",
       "path_template": "/obligations/extract${qs({ contract_id })}",
-      "response_type": "{ job_id: string; status: string }",
+      "response_type": "{ job_id: string; status: string; started?: boolean }",
       "type": "endpoint_client_fn"
     },
     {
@@ -13077,7 +13748,18 @@
       "method_name": "runReminders",
       "path_normalized": "/obligations/run-reminders",
       "path_template": "/obligations/run-reminders",
-      "response_type": "{\n      reminders_sent: number;\n      marked_overdue: number;\n      marked_due_soon: number;\n    }",
+      "response_type": "{\n      reminders_sent: number;\n      reminders_failed: number;\n      /** Left unsent: nobody active who can open the contract to send it to. */\n      reminders_skipped: number;\n      marked_overdue: number;\n      marked_due_soon: number;\n    }",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "obligationsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:obligationsApi.summary",
+      "method_name": "summary",
+      "path_normalized": "/obligations/summary",
+      "path_template": "/obligations/summary",
+      "response_type": "ObligationSummary",
       "type": "endpoint_client_fn"
     },
     {
@@ -13920,11 +14602,33 @@
       "download": false,
       "group": "trademarksApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.activity",
+      "method_name": "activity",
+      "path_normalized": "/trademarks/{param}/activity",
+      "path_template": "/trademarks/${id}/activity",
+      "response_type": "TrademarkActivityEntry[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:trademarksApi.atRisk",
       "method_name": "atRisk",
       "path_normalized": "/trademarks/reports/at-risk",
       "path_template": "/trademarks/reports/at-risk",
       "response_type": "TrademarkSummary[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.byRequest",
+      "method_name": "byRequest",
+      "path_normalized": "/trademarks/by-request/{param}",
+      "path_template": "/trademarks/by-request/${requestId}",
+      "response_type": "TrademarkByRequest",
       "type": "endpoint_client_fn"
     },
     {
@@ -14027,6 +14731,17 @@
       "type": "endpoint_client_fn"
     },
     {
+      "download": true,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.exportSearchRun",
+      "method_name": "exportSearchRun",
+      "path_normalized": "/trademarks/search-runs/{param}/export",
+      "path_template": "/trademarks/search-runs/${runId}/export",
+      "response_type": null,
+      "type": "endpoint_client_fn"
+    },
+    {
       "download": false,
       "group": "trademarksApi",
       "http_method": "POST",
@@ -14095,6 +14810,17 @@
     {
       "download": false,
       "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.openResponse",
+      "method_name": "openResponse",
+      "path_normalized": "/trademarks/{param}/responses",
+      "path_template": "/trademarks/${id}/responses",
+      "response_type": "Trademark",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
       "http_method": "GET",
       "id": "endpoint_client_fn:trademarksApi.portfolioStats",
       "method_name": "portfolioStats",
@@ -14118,11 +14844,66 @@
       "download": false,
       "group": "trademarksApi",
       "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.postFilingUpdate",
+      "method_name": "postFilingUpdate",
+      "path_normalized": "/trademarks/{param}/post-filing-update",
+      "path_template": "/trademarks/${id}/post-filing-update",
+      "response_type": "Trademark",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.recordDecision",
+      "method_name": "recordDecision",
+      "path_normalized": "/trademarks/{param}/decision",
+      "path_template": "/trademarks/${id}/decision",
+      "response_type": "Trademark",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.recordFiling",
+      "method_name": "recordFiling",
+      "path_normalized": "/trademarks/{param}/filing",
+      "path_template": "/trademarks/${id}/filing",
+      "response_type": "Trademark",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
       "id": "endpoint_client_fn:trademarksApi.regenerateDigest",
       "method_name": "regenerateDigest",
       "path_normalized": "/trademarks/reports/digest/regenerate",
       "path_template": "/trademarks/reports/digest/regenerate",
       "response_type": "PortfolioDigestResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.searchRun",
+      "method_name": "searchRun",
+      "path_normalized": "/trademarks/search-runs/{param}",
+      "path_template": "/trademarks/search-runs/${runId}",
+      "response_type": "TrademarkSearchRunDetail",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.searchRuns",
+      "method_name": "searchRuns",
+      "path_normalized": "/trademarks/{param}/search-runs",
+      "path_template": "/trademarks/${id}/search-runs",
+      "response_type": "TrademarkSearchRun[]",
       "type": "endpoint_client_fn"
     },
     {
@@ -14156,6 +14937,17 @@
       "path_normalized": "/trademarks/{param}",
       "path_template": "/trademarks/${id}",
       "response_type": "Trademark",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "PATCH",
+      "id": "endpoint_client_fn:trademarksApi.updateSearchRun",
+      "method_name": "updateSearchRun",
+      "path_normalized": "/trademarks/search-runs/{param}",
+      "path_template": "/trademarks/search-runs/${runId}",
+      "response_type": "TrademarkSearchRunDetail",
       "type": "endpoint_client_fn"
     },
     {
@@ -14514,7 +15306,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:contractsApi",
-      "method_count": 46,
+      "method_count": 50,
       "name": "contractsApi",
       "type": "endpoint_client_group"
     },
@@ -14535,7 +15327,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:draftingTemplatesApi",
-      "method_count": 6,
+      "method_count": 14,
       "name": "draftingTemplatesApi",
       "type": "endpoint_client_group"
     },
@@ -14549,7 +15341,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:intakeApi",
-      "method_count": 41,
+      "method_count": 45,
       "name": "intakeApi",
       "type": "endpoint_client_group"
     },
@@ -14584,7 +15376,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:obligationsApi",
-      "method_count": 5,
+      "method_count": 6,
       "name": "obligationsApi",
       "type": "endpoint_client_group"
     },
@@ -14682,7 +15474,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:trademarksApi",
-      "method_count": 23,
+      "method_count": 33,
       "name": "trademarksApi",
       "type": "endpoint_client_group"
     },
@@ -15304,6 +16096,15 @@
     },
     {
       "down_revision": [
+        "0049_trademark_menu_labels"
+      ],
+      "file": "backend/alembic/versions/0050_extract_only_ingest.py",
+      "id": "migration:0050_extract_only_ingest",
+      "revision": "0050_extract_only_ingest",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
         "0049_intake_drafts"
       ],
       "file": "backend/alembic/versions/0050_parties_master_records.py",
@@ -15318,6 +16119,15 @@
       "file": "backend/alembic/versions/0051_contract_party_links.py",
       "id": "migration:0051_contract_party_links",
       "revision": "0051_contract_party_links",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0050_extract_only_ingest"
+      ],
+      "file": "backend/alembic/versions/0051_trademark_clearance.py",
+      "id": "migration:0051_trademark_clearance",
+      "revision": "0051_trademark_clearance",
       "type": "migration"
     },
     {
@@ -15527,6 +16337,109 @@
       "file": "backend/alembic/versions/0074_intake_agent_filing.py",
       "id": "migration:0074_intake_agent_filing",
       "revision": "0074_intake_agent_filing",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0051_trademark_clearance",
+        "0073_merge_trademark_suite"
+      ],
+      "file": "backend/alembic/versions/0074_merge_clearance.py",
+      "id": "migration:0074_merge_clearance",
+      "revision": "0074_merge_clearance",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0073_merge_trademark_suite"
+      ],
+      "file": "backend/alembic/versions/0074_template_sync.py",
+      "id": "migration:0074_template_sync",
+      "revision": "0074_template_sync",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0074_intake_agent_filing",
+        "0074_merge_clearance"
+      ],
+      "file": "backend/alembic/versions/0075_merge_agent_filing.py",
+      "id": "migration:0075_merge_agent_filing",
+      "revision": "0075_merge_agent_filing",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0074_merge_clearance",
+        "0074_template_sync"
+      ],
+      "file": "backend/alembic/versions/0075_nda_check.py",
+      "id": "migration:0075_nda_check",
+      "revision": "0075_nda_check",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0075_merge_agent_filing"
+      ],
+      "file": "backend/alembic/versions/0076_post_filing_tracking.py",
+      "id": "migration:0076_post_filing_tracking",
+      "revision": "0076_post_filing_tracking",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0075_nda_check"
+      ],
+      "file": "backend/alembic/versions/0076_request_summary.py",
+      "id": "migration:0076_request_summary",
+      "revision": "0076_request_summary",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0076_request_summary"
+      ],
+      "file": "backend/alembic/versions/0077_obligation_edit_roles.py",
+      "id": "migration:0077_obligation_edit_roles",
+      "revision": "0077_obligation_edit_roles",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0077_obligation_edit_roles"
+      ],
+      "file": "backend/alembic/versions/0077_std_paper.py",
+      "id": "migration:0077_std_paper",
+      "revision": "0077_std_paper",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0077_std_paper"
+      ],
+      "file": "backend/alembic/versions/0078_activate_step_wording.py",
+      "id": "migration:0078_activate_step_wording",
+      "revision": "0078_activate_step_wording",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0078_activate_step_wording"
+      ],
+      "file": "backend/alembic/versions/0079_drop_nda_check.py",
+      "id": "migration:0079_drop_nda_check",
+      "revision": "0079_drop_nda_check",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0079_drop_nda_check",
+        "0076_post_filing_tracking"
+      ],
+      "file": "backend/alembic/versions/0080_merge_drl_saket.py",
+      "id": "migration:0080_merge_drl_saket",
+      "revision": "0080_merge_drl_saket",
       "type": "migration"
     },
     {
@@ -16785,6 +17698,10 @@
         {
           "column": "current_authoritative_version_id",
           "ref": "contract_version.id"
+        },
+        {
+          "column": "review_playbook_id",
+          "ref": "playbook.id"
         }
       ],
       "id": "model:contracts:Contract",
@@ -16953,6 +17870,56 @@
       "org_scoped": true,
       "soft_delete": false,
       "table": "usage_record",
+      "type": "model"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/models.py",
+      "fk_columns": [
+        {
+          "column": "playbook_id",
+          "ref": "playbook.id"
+        },
+        {
+          "column": "playbook_version_id",
+          "ref": "playbook_version.id"
+        }
+      ],
+      "id": "model:drafting_templates:DraftingTemplateCheck",
+      "mixins": [
+        "ActorTrackedMixin",
+        "IdMixin",
+        "OrgScopedMixin",
+        "TableNameMixin",
+        "TimestampMixin"
+      ],
+      "name": "DraftingTemplateCheck",
+      "org_scoped": true,
+      "soft_delete": false,
+      "table": "drafting_template_check",
+      "type": "model"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/models.py",
+      "fk_columns": [
+        {
+          "column": "playbook_id",
+          "ref": "playbook.id"
+        }
+      ],
+      "id": "model:drafting_templates:DraftingTemplateType",
+      "mixins": [
+        "ActorTrackedMixin",
+        "IdMixin",
+        "OrgScopedMixin",
+        "TableNameMixin",
+        "TimestampMixin"
+      ],
+      "name": "DraftingTemplateType",
+      "org_scoped": true,
+      "soft_delete": false,
+      "table": "drafting_template_type",
       "type": "model"
     },
     {
@@ -18004,12 +18971,7 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/models.py",
-      "fk_columns": [
-        {
-          "column": "ingested_trademark_id",
-          "ref": "trademark.id"
-        }
-      ],
+      "fk_columns": [],
       "id": "model:trademarks:DocumentExtract",
       "mixins": [
         "ActorTrackedMixin",
@@ -18046,10 +19008,6 @@
       "domain": "trademarks",
       "file": "backend/app/trademarks/models.py",
       "fk_columns": [
-        {
-          "column": "source_document_extract_id",
-          "ref": "document_extract.id"
-        },
         {
           "column": "source_intake_request_id",
           "ref": "intake_request.id"
@@ -18195,8 +19153,12 @@
     },
     {
       "components": [
+        "_admin-kit.tsx",
+        "_atoms.tsx",
         "_parties-register.test.tsx",
-        "_parties-register.tsx"
+        "_parties-register.tsx",
+        "_roles-teams-forms.tsx",
+        "_roles-teams.tsx"
       ],
       "domain": "admin",
       "file": "frontend/src/app/(app)/admin/page.tsx",
@@ -18239,7 +19201,10 @@
       "type": "page"
     },
     {
-      "components": [],
+      "components": [
+        "_type-needed.test.tsx",
+        "_type-needed.tsx"
+      ],
       "domain": "contracts",
       "file": "frontend/src/app/(app)/contracts/page.tsx",
       "id": "page:/contracts",
@@ -18279,6 +19244,12 @@
       "components": [
         "_agreement-forms.tsx",
         "_agreement-wizard.test.tsx",
+        "_approval-card.test.tsx",
+        "_approval-card.tsx",
+        "_decision-area.test.tsx",
+        "_decision-area.tsx",
+        "_deliverables.test.tsx",
+        "_deliverables.tsx",
         "_governance-ladder.tsx",
         "_legal-intake.test.tsx",
         "_legal-intake.tsx",
@@ -18286,10 +19257,32 @@
         "_my-work.test.tsx",
         "_my-work.tsx",
         "_negotiation-panel.tsx",
+        "_open-request.test.tsx",
+        "_open-request.tsx",
         "_phase1.test.tsx",
         "_phase1.tsx",
+        "_request-answers.test.tsx",
+        "_request-answers.tsx",
+        "_request-asked.test.tsx",
+        "_request-asked.tsx",
+        "_request-cards.test.tsx",
+        "_request-cards.tsx",
+        "_request-header.test.tsx",
+        "_request-header.tsx",
+        "_request-kpis.tsx",
+        "_request-overview-pane.tsx",
         "_request-overview.test.tsx",
-        "_request-overview.tsx"
+        "_request-overview.tsx",
+        "_request-risk.test.tsx",
+        "_request-risk.tsx",
+        "_request-steps.test.tsx",
+        "_request-steps.tsx",
+        "_request-summary.test.tsx",
+        "_request-summary.tsx",
+        "_signature-card.test.tsx",
+        "_signature-card.tsx",
+        "_summary-box.test.tsx",
+        "_summary-box.tsx"
       ],
       "domain": "intake",
       "file": "frontend/src/app/(app)/intake/page.tsx",
@@ -18401,20 +19394,13 @@
     {
       "components": [
         "_assign-screen-grant-modal.tsx",
+        "_level-ladder.tsx",
         "_screen-grants-panel.tsx"
       ],
       "domain": "screen-access",
       "file": "frontend/src/app/(app)/screen-access/page.tsx",
       "id": "page:/screen-access",
       "route": "/screen-access",
-      "type": "page"
-    },
-    {
-      "components": [],
-      "domain": "search",
-      "file": "frontend/src/app/(app)/search/page.tsx",
-      "id": "page:/search",
-      "route": "/search",
       "type": "page"
     },
     {
@@ -18450,7 +19436,16 @@
       "type": "page"
     },
     {
-      "components": [],
+      "components": [
+        "_check-all.tsx",
+        "_check-panel.test.tsx",
+        "_check-panel.tsx",
+        "_template-detail.tsx",
+        "_template-list.tsx",
+        "_version-history.tsx",
+        "_wording-editor.test.tsx",
+        "_wording-editor.tsx"
+      ],
       "domain": "templates",
       "file": "frontend/src/app/(app)/templates/page.tsx",
       "id": "page:/templates",
@@ -18516,7 +19511,24 @@
       "type": "page"
     },
     {
-      "components": [],
+      "components": [
+        "_audit-log-card.test.tsx",
+        "_audit-log-card.tsx",
+        "_decision-panel.test.tsx",
+        "_decision-panel.tsx",
+        "_documents-panel.tsx",
+        "_filing-panel.tsx",
+        "_overview-card.test.tsx",
+        "_overview-card.tsx",
+        "_post-filing-card.test.tsx",
+        "_post-filing-card.tsx",
+        "_progress-header.test.tsx",
+        "_progress-header.tsx",
+        "_progress-panel.test.tsx",
+        "_progress-panel.tsx",
+        "_searches-panel.test.tsx",
+        "_searches-panel.tsx"
+      ],
       "domain": "trademarks",
       "file": "frontend/src/app/(app)/trademarks/[id]/page.tsx",
       "id": "page:/trademarks/{id}",
@@ -19251,6 +20263,20 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:ContractTypeOption",
+      "name": "ContractTypeOption",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:ContractTypeSet",
+      "name": "ContractTypeSet",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
       "id": "schema:contracts:ContractUpdate",
       "name": "ContractUpdate",
       "type": "schema"
@@ -19328,8 +20354,239 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:TypeNeededItem",
+      "name": "TypeNeededItem",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:TypeNeededResponse",
+      "name": "TypeNeededResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
       "id": "schema:contracts:VersionDiffResponse",
       "name": "VersionDiffResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:AppliedFindingIn",
+      "name": "AppliedFindingIn",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:AppliedFindingOut",
+      "name": "AppliedFindingOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:CheckAllResultOut",
+      "name": "CheckAllResultOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:CheckAllSkippedOut",
+      "name": "CheckAllSkippedOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:CheckAllStartedOut",
+      "name": "CheckAllStartedOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:DraftingTemplateOut",
+      "name": "DraftingTemplateOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:DraftingTemplatePlaceholderOut",
+      "name": "DraftingTemplatePlaceholderOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:DraftingTemplateSummaryOut",
+      "name": "DraftingTemplateSummaryOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:DraftingTemplateVersionOut",
+      "name": "DraftingTemplateVersionOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateBindingOptionHolderOut",
+      "name": "TemplateBindingOptionHolderOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateBindingOptionOut",
+      "name": "TemplateBindingOptionOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateBindingOut",
+      "name": "TemplateBindingOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateCheckFindingOut",
+      "name": "TemplateCheckFindingOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateCheckOut",
+      "name": "TemplateCheckOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateCheckRequest",
+      "name": "TemplateCheckRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateCheckSummaryOut",
+      "name": "TemplateCheckSummaryOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateFieldUseOut",
+      "name": "TemplateFieldUseOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateFileRefOut",
+      "name": "TemplateFileRefOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateMutationResultOut",
+      "name": "TemplateMutationResultOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplatePlaybookChange",
+      "name": "TemplatePlaybookChange",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplatePlaybookOptionOut",
+      "name": "TemplatePlaybookOptionOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplatePlaybookRefOut",
+      "name": "TemplatePlaybookRefOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplatePreviewOut",
+      "name": "TemplatePreviewOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplatePreviewRequest",
+      "name": "TemplatePreviewRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateSaveRequest",
+      "name": "TemplateSaveRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateStandardAdopt",
+      "name": "TemplateStandardAdopt",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateStandardOut",
+      "name": "TemplateStandardOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateStatusOut",
+      "name": "TemplateStatusOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateSuggestedPlaybookOut",
+      "name": "TemplateSuggestedPlaybookOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateTypeOptionsOut",
+      "name": "TemplateTypeOptionsOut",
+      "type": "schema"
+    },
+    {
+      "domain": "drafting_templates",
+      "file": "backend/app/drafting_templates/schemas.py",
+      "id": "schema:drafting_templates:TemplateVersionAction",
+      "name": "TemplateVersionAction",
       "type": "schema"
     },
     {
@@ -19349,6 +20606,20 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:AcceptedChange",
+      "name": "AcceptedChange",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:ActivityItem",
+      "name": "ActivityItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:AssigneeResponse",
       "name": "AssigneeResponse",
       "type": "schema"
@@ -19363,6 +20634,34 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartyContractItem",
+      "name": "CounterpartyContractItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartyRequestItem",
+      "name": "CounterpartyRequestItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartySummary",
+      "name": "CounterpartySummary",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:DraftContractResponse",
+      "name": "DraftContractResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:DraftResponse",
       "name": "DraftResponse",
       "type": "schema"
@@ -19372,6 +20671,13 @@
       "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:DraftSave",
       "name": "DraftSave",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:ExtraInstruction",
+      "name": "ExtraInstruction",
       "type": "schema"
     },
     {
@@ -19412,6 +20718,20 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestActivityResponse",
+      "name": "RequestActivityResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestCounterpartyResponse",
+      "name": "RequestCounterpartyResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:RequestCreate",
       "name": "RequestCreate",
       "type": "schema"
@@ -19433,8 +20753,29 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestSummaryFiling",
+      "name": "RequestSummaryFiling",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestSummaryResponse",
+      "name": "RequestSummaryResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:RequestUpdate",
       "name": "RequestUpdate",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:SummaryDiffers",
+      "name": "SummaryDiffers",
       "type": "schema"
     },
     {
@@ -19888,6 +21229,20 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ActivityEntry",
+      "name": "ActivityEntry",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:AwaitingAction",
+      "name": "AwaitingAction",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:ClassSuggestionRequest",
       "name": "ClassSuggestionRequest",
       "type": "schema"
@@ -19904,6 +21259,20 @@
       "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:DashboardMetrics",
       "name": "DashboardMetrics",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:DecisionRequest",
+      "name": "DecisionRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:DocumentExtractResult",
+      "name": "DocumentExtractResult",
       "type": "schema"
     },
     {
@@ -19946,6 +21315,13 @@
       "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:FieldDefinition",
       "name": "FieldDefinition",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:FilingRequest",
+      "name": "FilingRequest",
       "type": "schema"
     },
     {
@@ -20021,8 +21397,29 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:PostFilingUpdateRequest",
+      "name": "PostFilingUpdateRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:RenewalCalendarEntry",
       "name": "RenewalCalendarEntry",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ResponseRequest",
+      "name": "ResponseRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:SearchRunUpdate",
+      "name": "SearchRunUpdate",
       "type": "schema"
     },
     {
@@ -20070,6 +21467,20 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkByRequest",
+      "name": "TrademarkByRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkCase",
+      "name": "TrademarkCase",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:TrademarkCreate",
       "name": "TrademarkCreate",
       "type": "schema"
@@ -20086,6 +21497,20 @@
       "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:TrademarkResponse",
       "name": "TrademarkResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkSearchRunDetail",
+      "name": "TrademarkSearchRunDetail",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkSearchRunSummary",
+      "name": "TrademarkSearchRunSummary",
       "type": "schema"
     },
     {
@@ -20160,6 +21585,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AcceptedChange",
+      "name": "AcceptedChange",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ActionLevelCode",
       "name": "ActionLevelCode",
       "type": "ts_interface"
@@ -20202,8 +21633,38 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AppliedFinding",
+      "name": "AppliedFinding",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ApprovalChainStep",
       "name": "ApprovalChainStep",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalDecisionEntry",
+      "name": "ApprovalDecisionEntry",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFact",
+      "name": "ApprovalFact",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFactKey",
+      "name": "ApprovalFactKey",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFactSource",
+      "name": "ApprovalFactSource",
       "type": "ts_interface"
     },
     {
@@ -20216,6 +21677,18 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ApprovalReviewContext",
       "name": "ApprovalReviewContext",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalSummary",
+      "name": "ApprovalSummary",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalView",
+      "name": "ApprovalView",
       "type": "ts_interface"
     },
     {
@@ -20436,6 +21909,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:CheckAllResult",
+      "name": "CheckAllResult",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:Citation",
       "name": "Citation",
       "type": "ts_interface"
@@ -20580,6 +22059,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ContractTypeOption",
+      "name": "ContractTypeOption",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ContractUploadResponse",
       "name": "ContractUploadResponse",
       "type": "ts_interface"
@@ -20604,8 +22089,20 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:CounterpartyContractItem",
+      "name": "CounterpartyContractItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:CounterpartyOption",
       "name": "CounterpartyOption",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:CounterpartyRequestItem",
+      "name": "CounterpartyRequestItem",
       "type": "ts_interface"
     },
     {
@@ -20618,6 +22115,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:DateConflict",
       "name": "DateConflict",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DateState",
+      "name": "DateState",
       "type": "ts_interface"
     },
     {
@@ -20646,8 +22149,20 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DocumentExtractResult",
+      "name": "DocumentExtractResult",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:DocumentExtractTemplate",
       "name": "DocumentExtractTemplate",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DraftContractResult",
+      "name": "DraftContractResult",
       "type": "ts_interface"
     },
     {
@@ -20706,6 +22221,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ExtraInstruction",
+      "name": "ExtraInstruction",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ExtractRequest",
       "name": "ExtractRequest",
       "type": "ts_interface"
@@ -20738,6 +22259,24 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:FieldDefinition",
       "name": "FieldDefinition",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:FindingSeverity",
+      "name": "FindingSeverity",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:FormRow",
+      "name": "FormRow",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:FormValue",
+      "name": "FormValue",
       "type": "ts_interface"
     },
     {
@@ -20952,6 +22491,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:LifecycleAction",
+      "name": "LifecycleAction",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:LifecycleOptionsResponse",
       "name": "LifecycleOptionsResponse",
       "type": "ts_interface"
@@ -21086,6 +22631,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ObligationStatus",
       "name": "ObligationStatus",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ObligationSummary",
+      "name": "ObligationSummary",
       "type": "ts_interface"
     },
     {
@@ -21276,6 +22827,30 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestActivity",
+      "name": "RequestActivity",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestActivityItem",
+      "name": "RequestActivityItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestCounterparty",
+      "name": "RequestCounterparty",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestFormColumn",
+      "name": "RequestFormColumn",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:RequestFormDef",
       "name": "RequestFormDef",
       "type": "ts_interface"
@@ -21294,8 +22869,26 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestSummary",
+      "name": "RequestSummary",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestSummaryFiling",
+      "name": "RequestSummaryFiling",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ReviewChecklistItem",
       "name": "ReviewChecklistItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ReviewHistoryVersion",
+      "name": "ReviewHistoryVersion",
       "type": "ts_interface"
     },
     {
@@ -21390,6 +22983,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:SearchRunUpdatePayload",
+      "name": "SearchRunUpdatePayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:SearchSimilarRequest",
       "name": "SearchSimilarRequest",
       "type": "ts_interface"
@@ -21444,6 +23043,30 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:SummaryBoxState",
+      "name": "SummaryBoxState",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:SummaryDiffers",
+      "name": "SummaryDiffers",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:SummaryEdit",
+      "name": "SummaryEdit",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:SummaryOffer",
+      "name": "SummaryOffer",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TabularCellStatus",
       "name": "TabularCellStatus",
       "type": "ts_interface"
@@ -21480,6 +23103,138 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateBinding",
+      "name": "TemplateBinding",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateBindingOption",
+      "name": "TemplateBindingOption",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheck",
+      "name": "TemplateCheck",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheckError",
+      "name": "TemplateCheckError",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheckFinding",
+      "name": "TemplateCheckFinding",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheckState",
+      "name": "TemplateCheckState",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheckSummary",
+      "name": "TemplateCheckSummary",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateCheckTrigger",
+      "name": "TemplateCheckTrigger",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateFieldUse",
+      "name": "TemplateFieldUse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateFileRef",
+      "name": "TemplateFileRef",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateMutationResult",
+      "name": "TemplateMutationResult",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplatePlace",
+      "name": "TemplatePlace",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplatePlaybookChange",
+      "name": "TemplatePlaybookChange",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplatePlaybookRef",
+      "name": "TemplatePlaybookRef",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateSavePayload",
+      "name": "TemplateSavePayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateSource",
+      "name": "TemplateSource",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateStandard",
+      "name": "TemplateStandard",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateStandardAdopt",
+      "name": "TemplateStandardAdopt",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateStatus",
+      "name": "TemplateStatus",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateStatusState",
+      "name": "TemplateStatusState",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateTypeOptions",
+      "name": "TemplateTypeOptions",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TemplateVersionAction",
+      "name": "TemplateVersionAction",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TmSearchResult",
       "name": "TmSearchResult",
       "type": "ts_interface"
@@ -21494,6 +23249,30 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:Trademark",
       "name": "Trademark",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkActivityEntry",
+      "name": "TrademarkActivityEntry",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkAwaitingAction",
+      "name": "TrademarkAwaitingAction",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkByRequest",
+      "name": "TrademarkByRequest",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkCase",
+      "name": "TrademarkCase",
       "type": "ts_interface"
     },
     {
@@ -21522,14 +23301,62 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkDecision",
+      "name": "TrademarkDecision",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkDecisionPayload",
+      "name": "TrademarkDecisionPayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkFilingPayload",
+      "name": "TrademarkFilingPayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkFromIntakeRequest",
       "name": "TrademarkFromIntakeRequest",
       "type": "ts_interface"
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkPostFilingPayload",
+      "name": "TrademarkPostFilingPayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkResponsePayload",
+      "name": "TrademarkResponsePayload",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkRiskLevel",
       "name": "TrademarkRiskLevel",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkSearchPurpose",
+      "name": "TrademarkSearchPurpose",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkSearchRun",
+      "name": "TrademarkSearchRun",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkSearchRunDetail",
+      "name": "TrademarkSearchRunDetail",
       "type": "ts_interface"
     },
     {
@@ -21566,6 +23393,18 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkWorkflowState",
       "name": "TrademarkWorkflowState",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TypeNeededItem",
+      "name": "TypeNeededItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TypeNeededList",
+      "name": "TypeNeededList",
       "type": "ts_interface"
     },
     {

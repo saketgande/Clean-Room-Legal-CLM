@@ -51,6 +51,14 @@ class PromptRunInput(BaseModel):
 class GenerateContractInput(BaseModel):
     title: str
     instructions: str
+    user_chose_free_drafting: bool = Field(default=False, description="true only after the user said, in this chat, to draft it freely with AI instead of from the organization's template")
+
+
+class DraftFromTemplateInput(BaseModel):
+    doc_type: str = Field(pattern="^(nda|msa|consultancy|sow|vendor|saas|dpa)$", description="which of the organization's templates")
+    counterparty: str = Field(min_length=2, description="the other party's name; ask the user if not given")
+    effective_date: str | None = Field(default=None, description="YYYY-MM-DD; omit for today")
+    fields: dict | None = Field(default=None, description="optional template answers, e.g. {'nda_kind': 'One-way', 'nda_term': ..., 'purpose': ...}")
 
 
 class EditContractInput(ContractHandleInput):
@@ -216,10 +224,15 @@ def _register(
 
 # ---- Intake + workflow-engine tools (let Ask Aegis run the whole flow) ----
 class CreateIntakeRequestInput(BaseModel):
-    type_label: str = Field(description="matter type, e.g. 'NDA Request', 'Contract Review', 'Data Privacy (DPIA)', 'Trademark'")
+    type_label: str = Field(description="exactly one of the request types. To get a contract made: 'New agreement · NDA' | 'New agreement · Services (MSA)' | 'New agreement · Buying from a vendor' | 'New agreement · Software or SaaS' | 'New agreement · Consultancy' | 'New agreement · Selling to a customer' | 'New agreement · Something else', or 'Statement of Work Request', 'Data Processing Agreement Request', 'Amendment Request', 'Renewal Request', 'Termination Request', 'Novation Request'. Questions and other work: IP Question, Vendor Due Diligence, Contract Question, Legal Question — General, Other. Never invent a label such as 'Contract Review'.")
     subject: str | None = None
     description: str = Field(default="", description="what the requester needs, in their own words")
-    department: str | None = Field(default=None, description="requesting business unit, e.g. Sales, Product, Finance")
+    department: str | None = Field(default=None, description="requesting business unit, asked of the user, e.g. Sales, Finance")
+    counterparty: str | None = Field(default=None, description="the vendor or other party. Ask the user; write 'not known' only if they said so")
+    estimated_value: str | None = Field(default=None, description="estimated value with currency. Ask the user; write 'not known' only if they said so")
+    counterparty_jurisdiction: str | None = Field(default=None, description="only for a counterparty not yet in the register: where it is based. Ask the user")
+    counterparty_email: str | None = Field(default=None, description="only for a counterparty not yet in the register: a contact email. Ask the user")
+    needed_by: str | None = Field(default=None, description="date it is needed by. Ask the user; write 'not known' only if they said so")
     priority: str = Field(default="Medium", pattern="^(Critical|High|Medium|Low)$")
     field_values: dict | None = Field(default=None, description="structured intake fields if known, e.g. {'counterparty':'Acme','draft_path':'custom'}")
 
@@ -238,7 +251,7 @@ class AdvanceIntakeWorkflowInput(BaseModel):
     note: str | None = Field(default=None, description="optional note for the completed step")
 
 
-_register("create_intake_request", "Raise a new legal intake request (NDA, contract review, privacy, trademark, etc.). The triage classifies it, flags missing info, assigns an owner, and may auto-start a workflow.", AssistantToolCategory.MUTATING, "intake:create", CreateIntakeRequestInput)
+_register("create_intake_request", "Raise a new legal intake request. Before calling, ask the user for anything missing (department, vendor or other party, estimated value, needed-by date); the call is refused until they are given. The triage classifies it, assigns an owner, and may auto-start a workflow.", AssistantToolCategory.MUTATING, "intake:create", CreateIntakeRequestInput)
 _register("get_intake_request", "Get an intake request's status, owner, missing info, and current workflow stage. Accepts a ref like 'REQ-4188'.", AssistantToolCategory.READ_ONLY, "intake:read", IntakeRequestRef)
 _register("start_intake_workflow", "Start / assign a governance workflow on an intake request (omit workflow_id to use the AI-suggested one).", AssistantToolCategory.MUTATING, "intake:update", StartIntakeWorkflowInput, confirmation_policy="required")
 _register("advance_intake_workflow", "Move an intake request's workflow forward — complete the current human step, or re-check a pending approval/signature.", AssistantToolCategory.MUTATING, "intake:update", AdvanceIntakeWorkflowInput, confirmation_policy="required")
@@ -400,6 +413,7 @@ _register(
 )
 _register("run_workflow", "Run an approved workflow.", AssistantToolCategory.MUTATING, "workflow:read", PromptRunInput)
 _register("generate_contract_docx", "Generate a new contract DOCX plan.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract:create", GenerateContractInput, feature_flag="feature.ai.docx_generation")
+_register("draft_from_template", "Draft a new contract from the organization's own template (NDA, MSA, consultancy, SOW, vendor, SaaS, DPA). Does not raise a request. Use when the user chooses template drafting.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract:create", DraftFromTemplateInput)
 _register(
     "edit_contract",
     "Create tracked-change edit suggestions for a contract from a natural-"
@@ -477,7 +491,7 @@ _register(
     SignatureSendInput,
     confirmation_policy="required",
 )
-_register("extract_obligations", "Queue obligation extraction for a contract.", AssistantToolCategory.MUTATING, "obligation:update", ExtractObligationsInput)
+_register("extract_obligations", "Queue obligation extraction for a contract. It says so when the contract was already read or is already being read; do not report those as queued.", AssistantToolCategory.MUTATING, "obligation:update", ExtractObligationsInput)
 # Opt-out: creates a new review table for the user to read; changes no existing record.
 _register("create_tabular_review", "Create a tabular review from selected contracts.", AssistantToolCategory.MUTATING, "assistant:use_ai_tools", TabularReviewInput, confirmation_policy="none")
 _register("read_table_cells", "Read a tabular review's generated cells.", AssistantToolCategory.READ_ONLY, "assistant:use", ReadTableCellsInput)
@@ -500,7 +514,7 @@ _register(
 # --- Spec A: read-only portfolio tools (let the assistant answer cross-contract questions) ---
 _register(
     "my_attention_items",
-    "List the contracts that need the user's attention soon — upcoming renewals, pending approvals assigned to them, obligations due, and signatures in flight — within window_days. Use for 'what needs my attention this week'.",
+    "List the contracts that need the user's attention soon — upcoming renewals, pending approvals assigned to them, obligations due, obligations that need a date, contracts whose obligations were never read or could not be read, and signatures in flight — within window_days. Use for 'what needs my attention this week'.",
     AssistantToolCategory.READ_ONLY,
     "contract:read",
     AttentionItemsInput,
@@ -514,7 +528,7 @@ _register(
 )
 _register(
     "list_obligations",
-    "List obligations across the whole portfolio, optionally only those due within due_within_days, optionally grouped by counterparty. Use for 'what obligations are due in the next 30 days'.",
+    "List obligations across the whole portfolio, optionally only those due within due_within_days, optionally grouped by counterparty. Use for 'what obligations are due in the next 30 days'. Read `summary` and `unread_contracts` before answering: an obligation with no date is not 'not due', and a contract whose obligations were not read has none on file, which is not the same as having none.",
     AssistantToolCategory.READ_ONLY,
     "obligation:read",
     ListObligationsInput,

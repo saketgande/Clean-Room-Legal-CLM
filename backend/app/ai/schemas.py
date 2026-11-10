@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import date
 from typing import Any, Literal
 
@@ -33,6 +35,12 @@ class ContractMetadataOutput(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
     citations: list[CitationInput] = Field(default_factory=list)
     notes: str | None = None
+
+    @field_validator("citations", mode="after")
+    @classmethod
+    def _few_citations(cls, value: list[CitationInput]) -> list[CitationInput]:
+        # Nine fields need at most nine proofs; an unbounded list is how a long answer ran out of tokens.
+        return value[:10]
 
     @field_validator("risk_level", mode="before")
     @classmethod
@@ -96,22 +104,97 @@ class ContractEditSuggestionsOutput(BaseModel):
     summary: str | None = None
 
 
+def _model_must_answer_position(schema: dict[str, Any]) -> None:
+    """Mark ``position`` required in the schema the model is given, while validation still accepts a
+    payload without it. A field with a default is optional in the schema, and a model asked for a tool
+    call leaves optional fields out; a question it may skip is a question it skips."""
+    required = schema.setdefault("required", [])
+    if "position" not in required:
+        required.append("position")
+
+
+_CLOSES_STRING = re.compile(r'\s*(?:[:}\]]|,\s*["{\[]|$)')
+
+
+def _escape_stray_quotes(text: str) -> str:
+    """Escape a double quote inside a JSON string that does not close it. The reviewer copies contract
+    wording into the text unescaped, so ``("MSMED Act"), it shall`` ends the string early and the whole
+    list was lost. A quote closes a string only when JSON structure follows it. ponytail: a defined term
+    followed by ``, "`` or ``:`` in the contract text still reads as a close; the parse then fails as before."""
+    out: list[str] = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and in_string:
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if ch == '"':
+            if not in_string:
+                in_string = True
+            elif _CLOSES_STRING.match(text, i + 1):
+                in_string = False
+            else:
+                out.append("\\")
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _list_from_json_text(value: Any) -> Any:
+    """The reviewer sometimes sends a list field as JSON text (``"[{\"quote\": ...}]"``), and a clean
+    review then failed validation as 'ai_unavailable'. Read the text when it holds a list, repairing
+    unescaped quotes from contract wording once; anything else goes on unchanged so it fails exactly
+    as before."""
+    if isinstance(value, str):
+        for candidate in (value, None):
+            try:
+                parsed = json.loads(candidate if candidate is not None else _escape_stray_quotes(value))
+            except ValueError:
+                continue
+            if isinstance(parsed, list):
+                return parsed
+    return value
+
+
 class PlaybookDeviationOutput(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_model_must_answer_position)
+
     rule_index: int | None = None
     clause_type: str
     severity: Literal["low", "medium", "high", "critical"] = "medium"
     issue: str
+    # Asked for after `issue`, once the model has worked the item through. The reviewer sometimes
+    # lists a clause and, writing the issue, finds it meets the rule ("no deviation to flag"; "this
+    # is an approval-tracking item"). Answering 'preferred' discards the item (``kept_deviations``)
+    # instead of turning it into a risk, a HIGH one when the rule needs approval. The default keeps
+    # every older payload as it was.
+    position: Literal["preferred", "fallback", "outside"] = Field(
+        default="outside",
+        description=(
+            "Where the contract's wording sits against this rule. 'preferred': it meets the rule's "
+            "preferred position, or is better for the org (then this is NOT a deviation and the item "
+            "is discarded; an approval requirement on the rule does not change that). 'fallback': it "
+            "sits at the rule's fallback position. 'outside': it is worse than the fallback, contains "
+            "prohibited language, or lacks required wording."
+        ),
+    )
     original_text: str | None = None
     suggested_fix: str | None = None
     approval_required: bool = False
     citations: list[CitationInput] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] = "medium"
 
+    _citations_from_text = field_validator("citations", mode="before")(_list_from_json_text)
+
 
 class PlaybookReviewOutput(BaseModel):
     deviations: list[PlaybookDeviationOutput] = Field(default_factory=list)
     summary: str | None = None
     citations: list[CitationInput] = Field(default_factory=list)
+
+    _lists_from_text = field_validator("deviations", "citations", mode="before")(_list_from_json_text)
 
 
 class PlaybookGenerationRule(BaseModel):
@@ -187,11 +270,29 @@ class ObligationTiming(BaseModel):
     # number and year are in the citation quote (core/deadlines.date_in_quote).
     explicit_date: date | None = None
 
+    # One off-list word from the model ("recurring", "hours") must not discard a whole
+    # contract's obligations. A recurring duty has no single deadline, so it reads as
+    # ongoing; a unit we cannot count leaves the deadline for a person ("enter the date").
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _known_kind(cls, v):
+        if v in ("deadline", "ongoing", "condition"):
+            return v
+        return "ongoing" if v in ("recurring", "continuous", "continuing") else "condition"
+
+    @field_validator("period_unit", mode="before")
+    @classmethod
+    def _known_unit(cls, v):
+        return v if v in ("days", "business_days", "weeks", "months", "years") else None
+
 
 class ObligationOutput(BaseModel):
-    obligation_type: str | None = None
+    # Bounded to the stored columns (obligation_type 160, responsible_party 255). An overlong value used to
+    # fail the whole save at the INSERT; now the tool schema tells the model the limit and a breach fails
+    # validation, which the job reports as an unusable answer.
+    obligation_type: str | None = Field(default=None, max_length=160)
     description: str = Field(min_length=1)
-    responsible_party: str | None = None
+    responsible_party: str | None = Field(default=None, max_length=255)
     timing: ObligationTiming = Field(default_factory=ObligationTiming)
     recurrence: Literal[
         "none", "monthly", "quarterly", "semi_annually", "annually", "per_event"

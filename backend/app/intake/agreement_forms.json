@@ -65,12 +65,6 @@
     ]
    },
    {
-    "key": "purpose",
-    "label": "What is this agreement for?",
-    "kind": "textarea",
-    "required": true
-   },
-   {
     "key": "needed_by",
     "label": "Needed by",
     "kind": "date",
@@ -139,7 +133,6 @@
     "kind": "select",
     "required": true,
     "options": [
-     "1 year",
      "2 years",
      "3 years",
      "5 years"
@@ -189,6 +182,21 @@
        "Consultancy",
        "Selling to a customer",
        "Something else"
+      ]
+     }
+    ],
+    "min_exclusive": 0,
+    "rules_when": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
       ]
      }
     ]
@@ -349,6 +357,100 @@
        "Something else"
       ]
      }
+    ],
+    "no_blanks": true,
+    "rules_when": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "advice_only",
+    "label": "Advice only",
+    "kind": "multiselect",
+    "required": false,
+    "options": [
+     "There are no separate deliverables (advice only)"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "fills": [
+     "consultancy_deliverables"
+    ]
+   },
+   {
+    "key": "consultancy_deliverables",
+    "label": "Deliverables",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 20,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     },
+     {
+      "field": "advice_only",
+      "in": [
+       "There are no separate deliverables (advice only)"
+      ],
+      "not": true
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "consultancy_deliverables"
+    ],
+    "columns": [
+     {
+      "key": "name",
+      "label": "Deliverable name",
+      "kind": "text",
+      "max_length": 200,
+      "unique": true,
+      "no_blanks": true
+     },
+     {
+      "key": "due",
+      "label": "Due date",
+      "kind": "date",
+      "within": [
+       "start_date",
+       "end_date"
+      ],
+      "open_end": true
+     }
     ]
    },
    {
@@ -401,6 +503,16 @@
      "60 days",
      "90 days"
     ],
+    "options_when": [
+     {
+      "when": [{"field": "agreement_type", "in": ["Services (MSA)", "Consultancy"]}],
+      "options": ["45 days", "60 days"]
+     },
+     {
+      "when": [{"field": "agreement_type", "in": ["Buying from a vendor", "Software or SaaS"]}],
+      "options": ["45 days", "60 days", "90 days"]
+     }
+    ],
     "show": [
      {
       "field": "agreement_type",
@@ -413,6 +525,160 @@
        "Something else"
       ]
      }
+    ]
+   },
+   {
+    "key": "fee_basis",
+    "label": "How is the consultant paid?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed fee",
+     "Day rate",
+     "Hourly rate"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "consultancy_fee_basis"
+    ]
+   },
+   {
+    "key": "fee_rate",
+    "label": "Rate per day or hour",
+    "kind": "number",
+    "required": true,
+    "min_exclusive": 0,
+    "max_decimals": 2,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     },
+     {
+      "field": "fee_basis",
+      "in": [
+       "Day rate",
+       "Hourly rate"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "consultancy_fee_basis"
+    ]
+   },
+   {
+    "key": "key_individuals",
+    "label": "Consultant's key individuals",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 10,
+    "item": [
+     "key individual",
+     "key individuals"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "key_individuals"
+    ],
+    "columns": [
+     {
+      "key": "name",
+      "label": "Name",
+      "kind": "text",
+      "max_length": 120,
+      "unique": true,
+      "no_blanks": true
+     }
+    ]
+   },
+   {
+    "key": "company_contact_name",
+    "label": "Company contact: name",
+    "kind": "text",
+    "required": true,
+    "max_length": 120,
+    "no_blanks": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "company_contact"
+    ]
+   },
+   {
+    "key": "company_contact_role",
+    "label": "Company contact: role",
+    "kind": "text",
+    "required": true,
+    "max_length": 120,
+    "no_blanks": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Consultancy"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "company_contact"
     ]
    },
    {
@@ -485,13 +751,15 @@
     "key": "cp_signer_name",
     "label": "Their signer: name",
     "kind": "text",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "cp_signer_email",
     "label": "Their signer: email",
     "kind": "email",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "needed_by",
@@ -518,7 +786,8 @@
     "key": "sow_title",
     "label": "SoW title",
     "kind": "text",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "services_start",
@@ -537,7 +806,8 @@
     "key": "value",
     "label": "Total value of this SoW",
     "kind": "number",
-    "required": true
+    "required": true,
+    "min_exclusive": 0
    },
    {
     "key": "currency",
@@ -566,13 +836,65 @@
     "key": "scope",
     "label": "Scope of services",
     "kind": "textarea",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
-    "key": "deliverables",
-    "label": "Deliverables and who accepts them",
-    "kind": "textarea",
-    "required": true
+    "key": "deliverable_rows",
+    "label": "Deliverables",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 20,
+    "legacy_key": "deliverables",
+    "legacy_label": "Deliverables and who accepts them",
+    "columns": [
+     {
+      "key": "name",
+      "label": "Deliverable name",
+      "kind": "text",
+      "max_length": 200,
+      "unique": true,
+      "no_blanks": true
+     },
+     {
+      "key": "due",
+      "label": "Due date",
+      "kind": "date",
+      "within": [
+       "services_start",
+       "services_end"
+      ]
+     },
+     {
+      "key": "their_owner",
+      "label": "Their owner",
+      "kind": "text",
+      "max_length": 120,
+      "no_blanks": true
+     },
+     {
+      "key": "our_owner",
+      "label": "Our owner",
+      "kind": "text",
+      "max_length": 120,
+      "no_blanks": true
+     },
+     {
+      "key": "share",
+      "label": "Share of the fee (%)",
+      "kind": "percent",
+      "total": 100,
+      "show": [
+       {
+        "field": "pricing",
+        "in": [
+         "Milestones"
+        ]
+       }
+      ]
+     }
+    ]
    },
    {
     "key": "personal_data",
@@ -654,32 +976,51 @@
     "key": "processing_purpose",
     "label": "Why is the data processed?",
     "kind": "textarea",
-    "required": true
+    "required": true,
+    "no_blanks": true,
+    "rules_when": [
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "fills": [
+     "processing_purpose"
+    ]
    },
    {
     "key": "data_types",
     "label": "What kind of personal data?",
-    "kind": "select",
+    "kind": "multiselect",
     "required": true,
     "options": [
      "Contact and identity",
      "Employee / HR",
      "Health or other special category",
-     "Financial",
-     "Several of these"
+     "Financial"
+    ],
+    "legacy_single": true,
+    "fills": [
+     "personal_data_types",
+     "special_category_data"
     ]
    },
    {
     "key": "data_subjects",
     "label": "Whose data?",
-    "kind": "select",
+    "kind": "multiselect",
     "required": true,
     "options": [
      "Employees",
      "Customers",
      "Patients or trial subjects",
-     "Suppliers",
-     "Several"
+     "Suppliers"
+    ],
+    "legacy_single": true,
+    "fills": [
+     "data_subject_categories"
     ]
    },
    {
@@ -690,6 +1031,50 @@
     "options": [
      "Yes",
      "No"
+    ],
+    "fills": [
+     "processing_locations"
+    ]
+   },
+   {
+    "key": "transfer_countries",
+    "label": "Countries outside India",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 20,
+    "item": [
+     "country",
+     "countries"
+    ],
+    "show": [
+     {
+      "field": "transfer",
+      "in": [
+       "Yes"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "processing_locations"
+    ],
+    "columns": [
+     {
+      "key": "country",
+      "label": "Country",
+      "kind": "text",
+      "max_length": 100,
+      "unique": true,
+      "no_blanks": true,
+      "outside": "India"
+     }
     ]
    },
    {
@@ -700,6 +1085,73 @@
     "options": [
      "Yes",
      "No"
+    ],
+    "fills": [
+     "authorised_subprocessors"
+    ]
+   },
+   {
+    "key": "subprocessor_rows",
+    "label": "Sub-processors",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 20,
+    "item": [
+     "sub-processor",
+     "sub-processors"
+    ],
+    "ref_prefix": "",
+    "show": [
+     {
+      "field": "subprocessors",
+      "in": [
+       "Yes"
+      ]
+     },
+     {
+      "field": "paper",
+      "in": [
+       "Our template"
+      ]
+     }
+    ],
+    "older_may_lack": true,
+    "fills": [
+     "authorised_subprocessors"
+    ],
+    "columns": [
+     {
+      "key": "name",
+      "label": "Sub-processor name",
+      "kind": "text",
+      "max_length": 200,
+      "unique": true,
+      "no_blanks": true
+     },
+     {
+      "key": "country",
+      "label": "Country",
+      "kind": "text",
+      "max_length": 100,
+      "no_blanks": true,
+      "must_be": {
+       "value": "India",
+       "when": {
+        "field": "transfer",
+        "in": [
+         "No"
+        ]
+       }
+      }
+     },
+     {
+      "key": "processing",
+      "label": "What it does",
+      "kind": "text",
+      "max_length": 300,
+      "no_blanks": true
+     }
     ]
    },
    {

@@ -59,7 +59,36 @@ def list_signature_requests(
         )
         .order_by(SignatureRequest.created_at.desc())
     ).all()
-    return rows
+    # The model has no relationship to its recipients, so without this the page never got the signers.
+    people: dict[str, list[SignatureRecipient]] = {}
+    if rows:
+        for r in db.scalars(
+            select(SignatureRecipient)
+            .where(
+                SignatureRecipient.org_id == current_user.org_id,
+                SignatureRecipient.signature_request_id.in_([x.id for x in rows]),
+            )
+            .order_by(SignatureRecipient.routing_order, SignatureRecipient.created_at)
+        ):
+            people.setdefault(r.signature_request_id, []).append(r)
+    return [
+        {
+            **{c.name: getattr(row, c.name) for c in SignatureRequest.__table__.columns},
+            "recipients": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "email": p.email,
+                    "role": p.role,
+                    "routing_order": p.routing_order,
+                    # A finished envelope means everyone on it signed, whatever the row last said.
+                    "status": "completed" if row.status == SignatureStatus.COMPLETED and p.status == "sent" else p.status,
+                }
+                for p in people.get(row.id, [])
+            ],
+        }
+        for row in rows
+    ]
 
 
 @router.post("/requests")

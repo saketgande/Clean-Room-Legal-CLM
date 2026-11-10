@@ -1,0 +1,1 @@
+{"task": "T009", "agent": "backend-dev", "status": "done", "detail": "checks.py + tasks.py template_check branch + test_template_check_jobs.py (56) + test_template_status.py (41): 97 pass; 360 pass with related suites; ruff clean; real-session e2e on scratch DB (8-thread single flight OK)", "updated": "2026-10-15T08:26:42Z"}

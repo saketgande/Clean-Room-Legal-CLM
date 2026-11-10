@@ -4,18 +4,23 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ApprovalsPage from "./page";
 import type { ApprovalRequest } from "@/lib/types";
+import { RISK_ACK_REQUIRED_MESSAGE } from "@/lib/types";
+import { HttpError } from "@/lib/api";
 
 // The Approvals page: what it counts as "yours to action", how it names a row, and the Delegate /
 // Escalate / Reject boxes (which say what they are for, and only offer people the server accepts).
 
 const h = vi.hoisted(() => ({
   notify: vi.fn(),
+  push: vi.fn(),
   approvalsApi: { list: vi.fn(), decide: vi.fn(), reassign: vi.fn(), reassignCandidates: vi.fn(), eligibleApprovers: vi.fn() },
   contractsApi: { list: vi.fn() },
+  intakeApi: { list: vi.fn() },
 }));
 
-vi.mock("@/lib/endpoints", () => ({ approvalsApi: h.approvalsApi, contractsApi: h.contractsApi }));
+vi.mock("@/lib/endpoints", () => ({ approvalsApi: h.approvalsApi, contractsApi: h.contractsApi, intakeApi: h.intakeApi }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { id: "u-me", roles: ["approver"], active_role_name: "approver" } }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: h.push }), usePathname: () => "/approvals", useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 vi.mock("next/link", () => ({ default: (p: { href: string; children: ReactNode; className?: string }) => <a href={p.href} className={p.className}>{p.children}</a> }));
 
@@ -42,6 +47,7 @@ beforeEach(() => {
   h.approvalsApi.list.mockResolvedValue([row()]);
   h.approvalsApi.reassignCandidates.mockResolvedValue([person("u-1", "Gale Approver")]);
   h.contractsApi.list.mockResolvedValue([]);
+  h.intakeApi.list.mockResolvedValue([]);
 });
 
 describe("the header counts", () => {
@@ -53,8 +59,8 @@ describe("the header counts", () => {
       row({ id: "a-4", can_decide: false }),
     ]);
     mount();
-    await waitFor(() => expect(screen.getByText("yours to action").parentElement).toHaveTextContent("1 yours to action"));
-    expect(screen.getByText("pending").parentElement).toHaveTextContent("2 pending");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Yours to action/ })).toHaveTextContent("1"));
+    expect(screen.getByRole("button", { name: /^Pending/ })).toHaveTextContent("2");
   });
 });
 
@@ -78,24 +84,50 @@ describe("naming what a row is about", () => {
   });
 });
 
+describe("grouping under the request", () => {
+  const req = { id: "ir-1", ref: "REQ-7001", subject: "NDA with Initech", type_label: "NDA", contract_id: "c-1", requester_name: "Pat", created_at: "2026-10-01T00:00:00Z", workflow: [] };
+
+  it("heads the card with the request's name, not the contract's, and puts both approvals of one request together", async () => {
+    // Failure mode: two steps of one request showed up as two unrelated cards, each named after the contract.
+    h.intakeApi.list.mockResolvedValue([req]);
+    h.approvalsApi.list.mockResolvedValue([row({ id: "a-1", step_order: 1 }), row({ id: "a-2", step_order: 2 })]);
+    mount();
+    const heading = await screen.findByRole("link", { name: "NDA with Initech" });
+    expect(heading).toHaveAttribute("href", "/intake?open=ir-1");
+    expect(screen.getAllByRole("link", { name: "NDA with Initech" })).toHaveLength(1);
+    const group = heading.closest(".apgroup") as HTMLElement;
+    expect(group).toHaveTextContent("2 approvals");
+    expect(group.querySelectorAll(".aprow")).toHaveLength(2);
+    expect(within(group).getByRole("link", { name: /Acme MSA/ })).toHaveAttribute("href", "/contracts/c-1");
+  });
+
+  it("opens the request, not the contract, when the card is clicked", async () => {
+    h.intakeApi.list.mockResolvedValue([req]);
+    mount();
+    const heading = await screen.findByRole("link", { name: "NDA with Initech" });
+    fireEvent.click(heading.closest(".aphd") as HTMLElement);
+    expect(h.push).toHaveBeenCalledWith("/intake?open=ir-1");
+  });
+});
+
 describe("who a row is with", () => {
   it("names the person it is assigned to, from the row itself (the people list is not readable by every approver)", async () => {
     h.approvalsApi.list.mockResolvedValue([row({ approver_user_id: "u-gale", approver_user_name: "Gale Approver" })]);
     mount();
-    expect(await screen.findByText("Gale Approver")).toBeInTheDocument();
-    expect(screen.queryByText("Assigned approver")).toBeNull();
+    expect(await screen.findByText(/With Gale Approver/)).toBeInTheDocument();
+    expect(screen.queryByText(/Assigned approver/)).toBeNull();
   });
 
   it("says a person is assigned when the row carries no name", async () => {
     h.approvalsApi.list.mockResolvedValue([row({ approver_user_id: "u-gale", approver_user_name: null })]);
     mount();
-    expect(await screen.findByText("Assigned approver")).toBeInTheDocument();
+    expect(await screen.findByText(/With Assigned approver/)).toBeInTheDocument();
   });
 
   it("names the team or the role when it is assigned to one", async () => {
     h.approvalsApi.list.mockResolvedValue([row({ approver_user_id: null, approver_team_id: "t-1", approver_team_name: "Finance" })]);
     mount();
-    expect(await screen.findByText("Finance")).toBeInTheDocument();
+    expect(await screen.findByText(/With Finance/)).toBeInTheDocument();
   });
 });
 
@@ -104,8 +136,10 @@ describe("when it is due", () => {
     const due = new Date(Date.now() - 3 * 3_600_000).toISOString();
     h.approvalsApi.list.mockResolvedValue([row({ due_at: due, overdue: true })]);
     mount();
-    const cell = (await screen.findByText("Overdue")).closest("tr")!.querySelectorAll("td")[4];
-    expect(cell).toHaveTextContent(/3h ago/);
+    await screen.findByRole("button", { name: "Approve" });
+    const card = document.querySelector(".aprow") as HTMLElement;
+    expect(card).toHaveTextContent("Overdue");
+    expect(card).toHaveTextContent(/3h ago/);
   });
 
   it("shows the time for a row that is due later today instead of just a date", async () => {
@@ -113,9 +147,9 @@ describe("when it is due", () => {
     if (due.getTime() < Date.now()) return; // test run after 23:59 local — nothing later today to show
     h.approvalsApi.list.mockResolvedValue([row({ due_at: due.toISOString(), overdue: false })]);
     mount();
-    const cell = (await screen.findByRole("button", { name: "Approve" })).closest("tr")!.querySelectorAll("td")[4];
-    expect(cell).toHaveTextContent(/^Today /);
-    expect(screen.queryByText("Overdue")).toBeNull();
+    const card = (await screen.findByRole("button", { name: "Approve" })).closest(".aprow") as HTMLElement;
+    expect(card.querySelector(".apdue .v")).toHaveTextContent(/^Today /);
+    expect(card.querySelector(".pill.crit")).toBeNull();
   });
 });
 
@@ -137,7 +171,8 @@ describe("the boxes and messages say which contract", () => {
 
   it("names the contract in the Delegate box and offers only the people the server returns", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Delegate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delegate" }));
     const box = (await screen.findByRole("heading", { name: "Delegate approval" })).closest(".dlg") as HTMLElement;
     expect(box).toHaveTextContent("Acme MSA");
     await within(box).findByRole("option", { name: /Gale Approver/ });
@@ -149,7 +184,8 @@ describe("the boxes and messages say which contract", () => {
   it("says who will be emailed once a person is chosen, and hands the approval over", async () => {
     h.approvalsApi.reassign.mockResolvedValue({});
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Delegate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delegate" }));
     const box = (await screen.findByRole("heading", { name: "Delegate approval" })).closest(".dlg") as HTMLElement;
     await within(box).findByRole("option", { name: /Gale Approver/ });
     fireEvent.change(within(box).getByLabelText("Delegate to"), { target: { value: "u-1" } });
@@ -162,10 +198,34 @@ describe("the boxes and messages say which contract", () => {
   it("asks for senior approvers when escalating and says so when there are none", async () => {
     h.approvalsApi.reassignCandidates.mockResolvedValue([]);
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Escalate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Escalate" }));
     const box = (await screen.findByRole("heading", { name: "Escalate approval" })).closest(".dlg") as HTMLElement;
     expect(await within(box).findByText(/No senior approver is available/)).toBeInTheDocument();
     expect(h.approvalsApi.reassignCandidates).toHaveBeenCalledWith("a-1", "escalate");
     expect(within(box).getByRole("button", { name: "Escalate" })).toBeDisabled();
+  });
+});
+
+describe("the open-risk acknowledgement", () => {
+  it("asks once on the 422 and resends with the acknowledgement; declining sends nothing more", async () => {
+    // Failure mode: with no checkbox on this page, an approver could never approve a contract with open high risks.
+    h.approvalsApi.decide.mockRejectedValueOnce(new HttpError(422, RISK_ACK_REQUIRED_MESSAGE)).mockResolvedValueOnce({});
+    const native = vi.spyOn(window, "confirm");
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    // The question is the app's own dialog, never the browser's native alert.
+    fireEvent.click(await screen.findByRole("button", { name: "Approve anyway" }));
+    await waitFor(() => expect(h.approvalsApi.decide).toHaveBeenCalledTimes(2));
+    expect(native).not.toHaveBeenCalled();
+    expect(h.approvalsApi.decide).toHaveBeenLastCalledWith("a-1", "approve", undefined, true);
+
+    h.approvalsApi.decide.mockReset();
+    h.approvalsApi.decide.mockRejectedValueOnce(new HttpError(422, RISK_ACK_REQUIRED_MESSAGE));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(h.notify).toHaveBeenLastCalledWith(RISK_ACK_REQUIRED_MESSAGE, "error"));
+    expect(h.approvalsApi.decide).toHaveBeenCalledTimes(1);
+    native.mockRestore();
   });
 });

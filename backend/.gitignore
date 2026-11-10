@@ -17,3 +17,5 @@ secrets/
 
 # Local object storage.
 .local-contract-storage/
+
+

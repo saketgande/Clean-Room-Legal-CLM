@@ -1,0 +1,1 @@
+{"task": "T012", "agent": "backend-dev", "status": "done", "detail": "drafting.py/routes.py/schemas.py done; test_template_drafting_record.py 26 + test_playbook_pin.py 23 pass (mutation-checked); full suite 3307 passed 1 skipped; ruff clean", "updated": "2026-10-15T08:51:22Z"}

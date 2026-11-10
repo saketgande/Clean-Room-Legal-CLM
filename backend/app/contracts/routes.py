@@ -5,11 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.service import ContractFilesService
+from app.contracts.contract_types import TYPES
 from app.contracts.dependencies import (
     get_contract_lifecycle_service,
     get_contract_service,
 )
 from app.contracts.lifecycle import ContractLifecycleService, allowed_transitions_for
+from app.contracts.review_history import review_history
 from app.contracts.risk import contract_risk, current_open_findings, refresh_contract_risk
 from app.contracts.schemas import (
     ContractActivityResponse,
@@ -17,6 +19,8 @@ from app.contracts.schemas import (
     ContractPartyResponse,
     ContractResponse,
     ContractStageHistoryResponse,
+    ContractTypeOption,
+    ContractTypeSet,
     ContractUpdate,
     ContractUploadResponse,
     CounterpartyOption,
@@ -25,6 +29,7 @@ from app.contracts.schemas import (
     ReviewRetryResponse,
     ReviewStatusResponse,
     SignerOption,
+    TypeNeededResponse,
     VersionDiffResponse,
 )
 from app.contracts.service import (
@@ -68,6 +73,19 @@ def counterparty_directory(
     current_user=Depends(require_permission("contract:read")),
 ):
     return list_counterparty_directory(db, org_id=current_user.org_id, q=q)
+
+
+@router.get("/types", response_model=list[ContractTypeOption])
+def contract_types(current_user=Depends(require_permission("contract:read"))):
+    return [{"value": v, "label": label} for v, label in TYPES]
+
+
+@router.get("/type-needed", response_model=TypeNeededResponse)
+def contracts_needing_a_type(
+    service: ContractService = Depends(get_contract_service),
+    current_user=Depends(require_permission("contract:read")),
+):
+    return service.list_type_needed(user=current_user)
 
 
 @router.post(
@@ -117,6 +135,20 @@ def get_contract_risk(
     which a missed refresh could leave describing older text."""
     contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
     return contract_risk(db, contract)
+
+
+@router.get("/{contract_id}/review-history")
+def get_contract_review_history(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Every version with the playbook reviews, the decisions taken on their findings and the
+    suggested changes made on it, newest version first. The risk band speaks only for the
+    current text; this keeps the earlier reviews and decisions visible, each on its own version."""
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return review_history(db, contract)
 
 
 @router.get("/{contract_id}/deviations")
@@ -270,6 +302,24 @@ def update_contract(
         contract=contract,
         user=current_user,
         updates=payload.model_dump(exclude_unset=True),
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.put("/{contract_id}/type", response_model=ContractResponse)
+def set_contract_type(
+    contract_id: str,
+    payload: ContractTypeSet,
+    request: Request,
+    service: ContractService = Depends(get_contract_service),
+    current_user=Depends(require_permission("contract:update")),
+    _screen=Depends(_CONTRACTS_EDIT),
+):
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.set_contract_type(
+        contract=contract,
+        user=current_user,
+        contract_type=payload.contract_type,
         request_id=getattr(request.state, "request_id", None),
     )
 

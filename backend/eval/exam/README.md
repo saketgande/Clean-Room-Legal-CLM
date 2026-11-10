@@ -100,6 +100,23 @@ docker compose run --rm -v "$HOME/Downloads:/owner_downloads:ro" backend \
 
 If one of the 14 is missing, nothing is imported.
 
+### The obligation rehearsal
+
+`obligations` is a separate, small paid command that has nothing to do with the exam's fourteen contracts. It runs
+today's obligation extraction (the production prompt, one call per answer key under `eval/obligations/gold/`) and
+scores it against the key, so a change to that extraction can later be judged on the same keys. It has every guard
+the other paid commands have (the exam's own key, the throwaway database, a typed ceiling that is a hard limit) and
+it always stamps its scorecard "PROVISIONAL REHEARSAL - NOT A BASELINE": the keys are AI-drafted until a lawyer
+confirms them. See `eval/obligations/README.md`.
+
+```
+docker compose exec backend python -m eval.exam obligations --label NAME [--runs 2] [--ceiling 1]
+```
+
+`--ceiling USD` gives the spending ceiling on the command line instead of at the prompt (for a terminal where typing at
+the prompt does not work). The estimate is still printed first, the amount is shown as the go-ahead, the approval
+record says it came from the command line, and the command still refuses unless a person is at a terminal.
+
 ### After a change
 
 1. Make the change (a prompt, a model, some code).
@@ -232,6 +249,7 @@ and Manning, CC BY 4.0), LegalBench-RAG (ZeroEntropy, MIT) and the Common Paper 
 | `draft-routing` | owner | Anthropic (about $0.30) |
 | `load-routing PATH` | owner | nothing |
 | `run --mode sample\|full [--delivery batch\|sync] [--change NAME --target AREA]` | owner | Anthropic (go-ahead and ceiling every time) |
+| `obligations [--runs N] [--label NAME] [--ceiling USD]` | owner | Anthropic (go-ahead and ceiling every time; about $0.06 per key per run, worst case $0.25) |
 | `run --resume RUN_ID` / `run --abandon RUN_ID` | owner | nothing new (resume stays under the approved ceiling) |
 | `baseline set NAME RUN_A RUN_B [--replace]` | owner | nothing |
 | `compare RUN_A RUN_B [--baseline NAME]` | anyone | nothing |

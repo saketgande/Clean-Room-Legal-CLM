@@ -623,6 +623,29 @@ def test_one_issue_failing_does_not_stop_the_others_and_is_counted(db, world, mo
     assert [d.id for d in issue_fixes.issues_needing_change(db, contract=contract_of(db, w))] == [b.id]
 
 
+def test_a_failed_issue_keeps_a_plain_reason_not_the_error_text(db, world, monkeypatch):
+    """Guards the per-issue reason stored on the job (and returned by GET /jobs) being the exception's own text:
+    a refused insert prints the contract's wording as its parameters."""
+    from sqlalchemy.exc import DataError
+
+    w = world
+    run = make_run(db, w)
+    make_issue(db, w, run, issue="Issue A")
+    make_issue(db, w, run, issue="Issue B")
+    db.commit()
+    secret = "Supplier shall pay INR 5,000,000 to Acme within 3 days"
+    refused = DataError("INSERT INTO contract_edit ...", {"original_text": secret}, Exception(secret))
+    Engine(w, monkeypatch, plan={0: refused})
+    job = new_job(db, w)
+
+    run_job(db, job)
+
+    issues = job.metadata_json["issues"]
+    assert [i["outcome"] for i in issues] == ["failed", "drafted"]
+    assert secret not in repr(job.metadata_json) and secret not in (job.error_message or "")
+    assert "could not be saved" in issues[0]["reason"]
+
+
 def test_a_model_that_finds_nothing_to_change_is_an_answer_not_a_failure(db, world, monkeypatch):
     w = world
     run = make_run(db, w)

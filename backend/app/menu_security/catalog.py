@@ -22,7 +22,6 @@ SCREEN_CATALOG: list[tuple[str, str, str, str, frozenset[str] | None, frozenset[
     ("home", "Ask Aegis", "Intelligence", "/", frozenset(), _ALL),
     ("my_work", "My Work", "Workspace", "/my-work", frozenset(), _ALL),
     ("notifications", "Notifications", "Workspace", "/notifications", frozenset(), _ALL),
-    ("search", "Search", "Workspace", "/search", frozenset(), _ALL),
     ("prompts", "Prompt Library", "Intelligence", "/prompts", frozenset(), _ALL),
     (
         "assistant",

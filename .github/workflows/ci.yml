@@ -86,6 +86,14 @@ jobs:
       - name: Apply migrations
         run: alembic upgrade head
 
+      # Same as `make test-db`: some tests (AI stability eval) look up the dev admin.
+      - name: Seed the test admin
+        run: python -m app.devtools seed
+        env:
+          ENVIRONMENT: test
+          DEV_SEED_ADMIN_EMAIL: admin@example.com
+          DEV_SEED_ADMIN_PASSWORD: local-dev-password
+
       - name: Run tests
         run: pytest -q
 

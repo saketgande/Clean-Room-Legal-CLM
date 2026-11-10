@@ -1,0 +1,1 @@
+{"task": "T007", "agent": "frontend-dev", "status": "done", "detail": "_wording-editor.tsx, _check-panel.tsx, _version-history.tsx + 55 component tests (20 editor, 35 check-panel/version-history) pass; typecheck errors only in old page.tsx/page.test.tsx (+2 stale .next/validator); full suite fails only old page.test.tsx (8)", "updated": "2026-10-15T07:56:54Z"}

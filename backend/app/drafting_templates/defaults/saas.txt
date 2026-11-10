@@ -48,13 +48,19 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 4. FEES, INVOICING AND PAYMENT
 
-4.1 The Customer shall pay the Fees set out in the applicable Order Form. The Fees are fixed for the initial Subscription Term and exclude applicable goods and services tax or equivalent indirect taxes, which shall be shown separately on each valid tax invoice.{value_sentence}
+4.1 The Customer shall pay the Fees set out in the applicable Order Form. The Fees are fixed for the initial Subscription Term and exclude applicable goods and services tax or equivalent indirect taxes, which shall be shown separately on each valid tax invoice. The Fees are stated and payable in {fee_currency}.{value_sentence}
 
-4.2 The Provider shall invoice the Fees periodically in arrears, or at the start of each billing period where the Order Form so provides, provided that no amount invoiced before the relevant period begins shall exceed twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a signed Order Form. Each invoice must quote the Order Form reference.
+4.2 The Provider shall invoice the Fees quarterly in arrears unless the Order Form states another billing period. Each invoice must quote the Order Form reference.
 
 4.3 The Customer shall pay undisputed invoices within {payment_days} days of receipt of a valid, undisputed invoice. The Customer may withhold, in good faith, any amount it disputes, and shall notify the Provider of the dispute and its reasons. The Parties shall work in good faith to resolve the dispute promptly, and the undisputed portion shall be paid in accordance with this clause. The Provider shall not suspend the Service while an amount is disputed in good faith.
 
-4.4 The Customer may deduct withholding taxes required by Applicable Law and shall provide the Provider with the corresponding tax certificate.
+4.4 The Customer may deduct withholding taxes required by Applicable Law and shall provide the Provider with the corresponding tax certificate. A reduced rate of withholding under a tax treaty applies only once the Provider has given a valid tax residency certificate, Form 10F and any other document the law requires.
+
+4.5 The Provider may suspend the Service only (a) to the extent and for as long as strictly necessary to address an imminent threat to the security of the Service, with prompt notice to the Customer giving the reasons, or (b) where undisputed Fees are more than thirty (30) days overdue and remain unpaid after two written notices given at least fifteen (15) days apart, each stating that the Service will be suspended. The Provider shall restore the Service promptly once the reason for suspension ends.
+
+4.6 The Provider shall state its GSTIN (where it is registered in India) on each invoice, issue tax invoices that comply with GST law and report and pay the tax collected, so that the Customer can claim input tax credit, and shall reimburse any input tax credit the Customer loses through its default, with any interest and penalty. Where the Provider is outside India, the Customer shall pay GST on the Service under reverse charge, the Provider's invoice is sufficient for that purpose, and the Fees shall not be increased.
+
+4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.
 
 5. PRICE INCREASES
 
@@ -64,9 +70,9 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 6. TERM AND RENEWAL
 
-6.1 This Agreement commences on the Effective Date and {agreement_term}. Each Order Form continues for its stated Subscription Term unless terminated earlier in accordance with this Agreement.
+6.1 This Agreement commences on the Effective Date and {agreement_term}. Each Order Form continues for its stated Subscription Term and renews in accordance with clauses 6.2 and 6.3, unless terminated earlier in accordance with this Agreement.
 
-6.2 A Subscription Term renews only where the Order Form provides for renewal, and the Customer may cancel any renewal by giving written notice at least sixty (60) days before the end of the then-current Subscription Term.
+6.2 A Subscription Term renews only where the Order Form provides for renewal, and the Customer may cancel any renewal by giving written notice at least {renewal_notice_days} days before the end of the then-current Subscription Term.
 
 6.3 The Provider shall send the Customer a written renewal reminder, stating the renewal date, the cancellation deadline and the Fees that will apply on renewal, at least thirty (30) days before the cancellation deadline. If the Provider fails to send that reminder, the Subscription Term shall not renew without the Customer's express written confirmation.
 
@@ -82,19 +88,19 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 8.2 The Provider shall implement and maintain appropriate technical and organisational security measures to protect Customer Data, consistent with industry standards, including encryption of Customer Data in transit using TLS 1.2 or higher and at rest using AES-256 or equivalent, access controls on a least-privilege basis, multi-factor authentication for administrative access, logging and monitoring, vulnerability management and regular penetration testing.
 
-8.3 The Provider shall notify the Customer of any Security Incident without undue delay, and in any event within seventy-two (72) hours after becoming aware of it. The notice shall describe the nature of the incident, the Customer Data affected, the likely consequences and the measures taken or proposed, and the Provider shall provide such further information and assistance as the Customer reasonably requires to investigate, mitigate and report the Security Incident. The Provider shall bear the costs of remediation, notification to affected individuals and regulators, and credit monitoring arising from a Security Incident caused by its breach of this Agreement.
+8.3 The Provider shall notify the Customer of any Security Incident without undue delay, and in any event within twenty-four (24) hours (and within six (6) hours where it must be reported to the Indian Computer Emergency Response Team (CERT-In)), after becoming aware of it. The notice shall describe the nature of the incident, the Customer Data affected, the likely consequences and the measures taken or proposed, and the Provider shall provide such further information and assistance as the Customer reasonably requires to investigate, mitigate and report the Security Incident. The Provider shall bear the costs of remediation, notification to affected individuals and regulators, and credit monitoring arising from a Security Incident caused by its breach of this Agreement.
 
-8.4 Each Party shall comply with Data Protection Laws. Where the Provider processes personal data on behalf of the Customer, it shall do so only on the Customer's documented instructions, and the Parties shall enter into a data processing agreement on the Customer's standard template, which is incorporated into and forms part of this Agreement. The data protection obligations in this clause and in that data processing agreement apply in addition to the security obligations above.
+8.4 Each Party shall comply with Data Protection Laws. Where the Provider processes personal data on behalf of the Customer, it shall do so only on the Customer's documented instructions. {dpa_status} The data protection obligations in this clause and in that data processing agreement apply in addition to the security obligations above.
 
 8.5 The Provider shall ensure that all personnel with access to Customer Data are bound by confidentiality obligations and have received appropriate data protection and security training.
 
+8.6 The Provider shall maintain, and test at least once a year, a business continuity and disaster recovery plan for the Service; back up Customer Data at least daily to a separate location in the same region as the hosting location in clause 9.1; and, unless the Order Form states otherwise, meet a recovery point objective of twenty-four (24) hours and a recovery time objective of eight (8) hours. It shall share the plan and its latest test results on request.
+
 9. DATA LOCATION AND TRANSFERS
 
-9.1 The Provider shall host, store and process Customer Data only in data centres located in India, or, where the Order Form expressly so provides, in the European Union.
+{hosting_clause}
 
-9.2 The Provider shall not transfer, or permit access to, Customer Data from any location outside India (or the European Union, where so agreed) without the Customer's prior written approval, given after review by the Customer's privacy function, and only where Standard Contractual Clauses or an equivalent safeguard recognised by Data Protection Laws are in place.
-
-9.3 The Provider shall maintain and make available to the Customer a current list of its sub-processors and their processing locations, and shall give the Customer at least thirty (30) days' prior written notice of any new sub-processor, during which the Customer may object on reasonable grounds.
+9.3 The Provider shall maintain and make available to the Customer a current list of its sub-processors and their processing locations, and shall give the Customer at least thirty (30) days' prior written notice of any new sub-processor, during which the Customer may object on reasonable grounds. If the Customer objects and the Parties do not resolve the objection within thirty (30) days, the Customer may terminate the affected Order Form on written notice without liability, and the Provider shall refund any prepaid Fees for the period after termination.
 
 10. EXIT AND DATA RETURN
 
@@ -132,21 +138,23 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 14.1 The Provider shall defend, indemnify and hold harmless the Customer, its Affiliates and their respective officers, directors and employees from and against all losses, damages, liabilities, costs and expenses (including reasonable legal fees) arising out of any third-party claim to the extent arising from (a) any allegation that the Service, or its use by the Customer in accordance with this Agreement, infringes the intellectual property rights of a third party; (b) the Provider's breach of Data Protection Laws or of clause 8 (Data Security and Data Protection); or (c) the negligence, wilful misconduct or fraud of the Provider or its personnel or subcontractors.
 
-14.2 The Customer shall notify the Provider promptly of any claim, provide reasonable cooperation at the Provider's cost, and not settle the claim without the Provider's consent (not to be unreasonably withheld). The Provider shall not settle any claim in a way that imposes any obligation or admission on the Customer without the Customer's prior written consent. The Customer may participate in the defence with counsel of its choice.
+14.2 The Customer shall notify the Provider promptly of any claim and provide reasonable cooperation at the Provider's cost. The Provider controls the defence and settlement of the claim, but shall not settle it in a way that admits fault for, or imposes any obligation on, the Customer without the Customer's prior written consent. The Customer may participate in the defence with its own counsel at its own cost.
 
 14.3 If the Service becomes, or in the Provider's reasonable opinion is likely to become, the subject of an infringement claim, the Provider shall at its cost procure the right for the Customer to continue using it or modify or replace it so it is non-infringing without material loss of functionality, failing which the Customer may terminate the affected Order Form and receive a refund of any prepaid Fees for the remainder of the Subscription Term.
 
 15. LIMITATION OF LIABILITY
 
-15.1 Subject to clauses 15.2, 15.4 and 15.5, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim.
+15.1 Subject to clauses 15.2, 15.4 and 15.5, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the greater of (a) the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months of the Subscription Term (the "General Cap").
 
-15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability arising out of or in connection with any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws shall not exceed three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This amount is separate from and in addition to the amount in clause 15.1.
+15.2 Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) {data_breach_floor} (the "Data Breach Cap"). "Data Breach Claim" means any liability arising from a Security Incident or from a breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, including where the same facts are also a breach of clause 11 (Confidentiality) or fall within the indemnity in clause 14.1(b). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it.
 
 15.3 Subject to clauses 15.4 and 15.5, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential. The following are recoverable as direct losses: the costs of restoring or recreating lost or corrupted Customer Data, the costs of notification and remediation following a Security Incident, regulatory fines and penalties to the extent permitted by law, and the reasonable costs of procuring a replacement service.
 
-15.4 This limitation of liability does not limit or exclude either Party's liability for (a) breach of clause 11 (Confidentiality); (b) its indemnification obligations, including the Provider's obligations under clause 14 (Indemnification), which are not subject to any cap; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
+15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) (the IP indemnity) and 14.1(c), which are unlimited and not subject to the General Cap, the Data Breach Cap or any other cap in this clause 15; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
 
 15.5 Nothing in this clause limits the Customer's obligation to pay undisputed Fees properly due.
+
+15.6 The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than {insurance_minimum} per claim, and shall provide evidence of cover on request.
 
 16. TERMINATION
 
@@ -172,13 +180,13 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 19. NOTICES
 
-19.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in the applicable Order Form or as notified in writing from time to time. A notice is deemed received on delivery by hand or courier, or on the next business day after sending by email, provided no notice of delivery failure is received.
+19.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in its signature block below or as notified in writing from time to time. A notice is deemed received on delivery by hand or courier, or on the next business day after sending by email, provided no notice of delivery failure is received.
 
 20. GOVERNING LAW AND DISPUTE RESOLUTION
 
 20.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
 
-20.2 The Parties shall first try to resolve any dispute through good-faith negotiation between senior representatives within thirty (30) days of written notice of the dispute. If the dispute is not resolved, it shall be submitted to the exclusive jurisdiction of the competent courts of {governing_law}. Nothing in this clause prevents either Party from seeking urgent injunctive or interim relief.
+20.2 The Parties shall first try to resolve any dispute through good-faith negotiation between senior representatives within thirty (30) days of written notice of the dispute. {dispute_resolution}
 
 21. GENERAL
 
@@ -196,9 +204,22 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
 
-{company}                                    {counterparty}
+Signed for and on behalf of {company}
 
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
+By: ______________________________
+Name: {our_signatory_name}
+Title: {our_signatory_title}
+Date: ______________________________
+Registered office and address for notices: {company_address}
+Company number (CIN): ______________________________
+GSTIN: ______________________________
+
+Signed for and on behalf of {counterparty}
+
+By: ______________________________
+Name: {their_signatory_name}
+Title: {their_signatory_title}
+Date: ______________________________
+Address for notices: {counterparty_address}
+Company number: ______________________________
+Tax number (GSTIN or equivalent): ______________________________

@@ -23,6 +23,7 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.rbac import has_permission
+from app.intake import sow
 from app.intake.models import IntakeRequest, IntakeTeam
 from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
 
@@ -108,6 +109,16 @@ _PLAYBOOK_REVIEW_AGENTS = frozenset({"contract_review_agent", "nda_agent"})
 
 # Marker on a drafting step's result: the workflow was sent back to it, so a person redoes the draft.
 _RETURNED_FOR_REWORK = "returned_for_rework"
+# step.result["held"] on a draft step stopped for what the request lacks: "deliverable_rows" (the SOW's rows,
+# FR-45), "answers" (a Consultancy or DPA request's answers) or "form" (a DPA request that came in by email
+# or chat), spec 008 FR-44. A step skipped for a Processor request carries {"skipped": "processor_role"}.
+_HELD_FOR_ROWS = "deliverable_rows"
+
+
+def _is_held(sr) -> bool:
+    """True for a draft step stopped because the request lacks what the draft is made from (FR-45, 008 FR-44)."""
+    result = getattr(sr, "result", None)
+    return isinstance(result, dict) and bool(result.get("held"))
 
 
 # --------------------------------------------------------------------------- selection
@@ -906,6 +917,22 @@ def _step_threshold(raw) -> float | None:
         return confidence_score(str(raw)) or None  # a level word ("high"), else unreadable
 
 
+def _record_draft_skipped(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun | None, skip) -> None:
+    """The record of a draft step skipped because the request gets no draft from our template (spec 008
+    FR-55): an audit row and a line in the request's history, both by the system (no actor) since nobody
+    chose it. Written on the run's own session, in the run's own transaction."""
+    facts = {"flow_run_id": run.id, "step_idx": sr.idx if sr is not None else run.current_index,
+             "reason": skip.reason, "note": skip.note}
+    write_audit_log(
+        db, action="workflow.draft_skipped", resource_type="intake_request", resource_id=run.request_id,
+        org_id=run.org_id, actor_user_id=None, after=facts,
+    )
+    write_timeline_event(
+        db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+        event_type="flow.draft_skipped", title=skip.title, actor_user_id=None, details=facts,
+    )
+
+
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
     """Returns 'advance' | 'wait'. Each branch is a thin call into an existing
     subsystem."""
@@ -1114,8 +1141,18 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         thr = _step_threshold(cfg.get("escalate_below_confidence"))
         conf = confidence_score(conf)
         if not agent_val and thr is None:
-            # No agent and no bar: a system step ("Activate & track") -- the AI was
-            # asked nothing, so there is no verdict to trust or distrust.
+            # No agent and no bar: a system step ("Activate") -- the AI was
+            # asked nothing, so there is no verdict to trust or distrust. In the Active stage it says on the step what is
+            # true of the contract (the step row reads "Done"; the obligation row is where the reading shows up).
+            if sr is not None and step.get("stage") == "active":
+                from app.contracts.models import Contract
+                from app.workflows import stages
+
+                contract = db.get(Contract, run.contract_id) if run.contract_id else None
+                sr.note = (
+                    stages.ACTIVATE_STEP_NOTE_NO_CONTRACT if contract is None
+                    else stages.ACTIVATE_STEP_NOTE if (contract.lifecycle_stage or "").lower() in ("active", "closed")
+                    else stages.ACTIVATE_STEP_NOTE_NOT_ACTIVE)
             return "advance"
         # The AI suggests, the workflow decides: the step clears itself only when a
         # real analysis gave a number AND the step sets a bar AND the number meets
@@ -1166,8 +1203,18 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         req = db.get(IntakeRequest, run.request_id)
         path = str(((req.field_values or {}).get("draft_path")) or cfg.get("mode") or "fast_lane").lower()
         if path not in ("custom", "attach"):
-            from app.intake.drafting import resolve_doc_type
+            from app.intake.drafting import resolve_doc_type, template_skip
 
+            # A request our template is not written for gets no draft: this runs BEFORE the fallback below,
+            # which would otherwise make a bespoke one and wait for an attorney (spec 008 FR-54).
+            skip = template_skip(req)
+            if skip is not None:
+                if sr:
+                    sr.status = "skipped"
+                    sr.note = skip.note
+                    sr.result = {"skipped": skip.reason}
+                _record_draft_skipped(db, run=run, sr=sr, skip=skip)
+                return "advance"
             if resolve_doc_type(req) is None:
                 # No standard template for this kind (a distribution or licence agreement,
                 # say): draft it fresh instead of failing the flow on its first step.
@@ -1192,7 +1239,21 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 sr.status = "waiting_human"
                 sr.note = "Upload the document on the ticket — it becomes the contract."
             return "wait"
-        contract = await _draft_contract(db, run=run, mode="template", actor=actor)
+        from app.intake.drafting import DraftHeld, held_step
+
+        try:
+            contract = await _draft_contract(db, run=run, mode="template", actor=actor)
+        except DraftHeld as held:
+            # A request that lacks what the draft is made from (an older SOW with its deliverables only as
+            # free text, FR-45; a Consultancy or DPA request without the schedule's or annexes' answers, or a
+            # DPA that came in by email, spec 008 FR-44): stop here for a person and say why. Not skipped, not
+            # done, no contract; _resolve_waiting_group lets it go on once the request has them. The hold is
+            # set before _assign_step, which adds its own keys to sr.result.
+            if sr:
+                sr.status = "waiting_human"
+                sr.note, sr.result = held_step(held.detail)
+                _assign_step(db, run=run, sr=sr, cfg=cfg)
+            return "wait"
         run.contract_id = contract.id
         if sr:
             sr.result = {"contract_id": contract.id}
@@ -1380,6 +1441,14 @@ def complete_human_step(
     sr = _sr_at(db, run, idx)
     if sr and sr.status == "waiting_human":
         _require_step_actor(db, sr=sr, actor=actor)
+        if _is_held(sr):
+            from app.intake.drafting import ANSWERS_STEP_NOT_MANUAL
+
+            # Before _take_rework_reply, which writes a comment: a refused step changes nothing.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                sow.HELD_STEP_NOT_MANUAL if sr.result.get("held") == _HELD_FOR_ROWS else ANSWERS_STEP_NOT_MANUAL,
+            )
         _take_rework_reply(db, run=run, actor=actor, idx=idx, reply=rework_reply, request_id=request_id)
         sr.status = "done"; sr.note = note or sr.note
         steps = list(run.steps or [])
@@ -1792,7 +1861,16 @@ def _resolve_waiting_group(db: Session, *, run: WorkflowRun, steps: list) -> str
         sr = _sr_at(db, run, gi)
         if sr is None or sr.status in ("done", "skipped", "failed"):
             continue
-        if st == "approval":
+        if st == "clm_draft":
+            # A draft held for the SOW rows (FR-45) is set going again once the rows exist, so the
+            # refresh and the resume beat draft it with no one filing the request again.
+            if sr.status == "waiting_human" and _is_held(sr):
+                from app.intake.drafting import draft_hold
+
+                request = db.get(IntakeRequest, run.request_id)
+                if request is not None and draft_hold(db, org_id=run.org_id, request=request) is None:
+                    sr.status = "pending"; sr.note = None; sr.result = None
+        elif st == "approval":
             ids = (sr.result or {}).get("approval_ids") if isinstance(sr.result, dict) else None
             if ids:  # an intake-request (no-contract) approval chain
                 chain = db.scalars(select(ApprovalRequest).where(ApprovalRequest.id.in_(ids))).all()
@@ -2087,6 +2165,30 @@ def _refuse_clash(db: Session, flow: Workflow) -> None:
                             f"“{other}” is already used for that request — each can pick only one workflow.")
 
 
+# What an Approval step shows its approver on the request page (spec 009). Only this setting
+# picks the view; team names and roles are never read.
+APPROVAL_VIEWS = ("general", "finance", "legal")
+
+
+def approval_view_for(db: Session, *, run: WorkflowRun | None, approval_request_id: str | None) -> str:
+    """The approver view of the run's step that owns this approval, from the run's own copy of
+    the steps (a view changed later applies to runs started afterwards). Unset or unknown is
+    "general"."""
+    if run is None:
+        return "general"
+    sruns = [sr for sr in _step_runs(db, run) if sr.step_type == "approval"]
+    owner = next(
+        (sr for sr in sruns
+         if approval_request_id and isinstance(sr.result, dict)
+         and approval_request_id in (sr.result.get("approval_ids") or [])),
+        None,
+    ) or next((sr for sr in sruns if (sr.status or "").startswith("waiting")), None)
+    if owner is None or not 0 <= owner.idx < len(run.steps or []):
+        return "general"
+    view = ((run.steps[owner.idx] or {}).get("config") or {}).get("summary")
+    return view if view in APPROVAL_VIEWS else "general"
+
+
 def _clean_steps(steps: list) -> list:
     out = []
     for i, s in enumerate(steps):
@@ -2115,6 +2217,10 @@ def _clean_steps(steps: list) -> list:
                 "value": cond.get("value"),
             }
             _validate_condition(step["cond"], step["name"])
+        view = step["config"].get("summary") if t == "approval" else None
+        if view is not None and view not in APPROVAL_VIEWS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Approver view must be general, finance or legal")
         for key in ("skip_when", "skip_if"):
             rule = step["config"].get(key)
             if isinstance(rule, dict) and rule.get("field"):

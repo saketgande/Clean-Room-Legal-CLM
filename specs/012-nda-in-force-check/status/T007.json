@@ -1,0 +1,1 @@
+{"task":"T007","agent":"frontend-dev","status":"done","detail":"picker, panel, workspace prompt + 3 test files; typecheck clean (2 known docstudio errors); suite 1897/1898, sole failure is T006's _nda-check.test.tsx","updated":"2026-10-27T07:20:22Z"}

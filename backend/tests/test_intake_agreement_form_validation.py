@@ -126,3 +126,12 @@ def test_a_follow_up_question_is_required_once_it_applies(db, actor):
     with pytest.raises(HTTPException) as exc:
         _file(db, actor, dict(_COMPLETE_NEW_AGREEMENT, term="Renews automatically"))
     assert "Each renewal lasts" in exc.value.detail
+
+
+def test_a_payment_term_the_type_no_longer_offers_is_refused_on_filing(db, actor):
+    """FR-3: an MSA filed with "30 days" must be refused with the options its type offers, not filed
+    and then drafted against a playbook that rejects it."""
+    with pytest.raises(HTTPException) as exc:
+        _file(db, actor, dict(_COMPLETE_NEW_AGREEMENT, payment_terms="30 days"))
+    assert exc.value.status_code == 422
+    assert "45 days, 60 days" in exc.value.detail

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dueText } from "./approval-due";
 
 const at = (h: number, m = 0, dayOffset = 0) => {
@@ -8,6 +8,11 @@ const at = (h: number, m = 0, dayOffset = 0) => {
 const now = new Date(2026, 9, 8, 14, 0, 0);
 
 describe("dueText", () => {
+  // fmtRelative reads the real clock; without this the "…ago" text turns into a plain date
+  // once the fixed October dates are more than 30 days old.
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it("is a dash with no due date", () => {
     expect(dueText({ due_at: null, overdue: false, status: "pending" }, now)).toBe("—");
   });

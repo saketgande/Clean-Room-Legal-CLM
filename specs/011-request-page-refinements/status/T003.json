@@ -1,0 +1,1 @@
+{"task": "T003", "agent": "backend-dev", "status": "done", "detail": "visible_counterparty + GET /counterparty; dossier no longer stored/served; 27 new tests green", "updated": "2026-10-23T10:00:00Z"}

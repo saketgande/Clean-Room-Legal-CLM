@@ -24,7 +24,7 @@ PermissionInfo, RoleCreate, RoleResponse, RoleUpdate, UserClearanceUpdate, UserR
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
-(none matched -- check specs/_graph/repo-graph.json for the full migration chain)
+- `0077_obligation_edit_roles` (backend/alembic/versions/0077_obligation_edit_roles.py)
 
 ## Frontend counterpart
 

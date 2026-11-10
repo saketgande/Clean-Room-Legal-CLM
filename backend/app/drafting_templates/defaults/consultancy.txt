@@ -44,13 +44,17 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 2.4 The Consultant has no authority to bind the Company or to hold itself out as able to do so.
 
+2.5 If any Services or Deliverables do not comply with this Agreement, the Consultant shall, at the Company's option, re-perform them at no cost within ten (10) business days of notice, or refund the Fees paid for them. A Deliverable is accepted only when the Company confirms in writing that it meets its description in the Engagement Schedule.
+
 3. INDEPENDENT CONTRACTOR
 
 3.1 The Consultant is engaged as an independent contractor. Nothing in this Agreement creates an employment relationship, partnership, joint venture or agency between the Company and the Consultant or any of the Consultant's Personnel, and none of them is entitled to any salary, benefits, leave, gratuity, bonus, pension, insurance or other entitlement of an employee of the Company.
 
-3.2 The Consultant is solely responsible for all income tax, goods and services tax, social security, provident fund and other statutory contributions, levies and benefits payable in respect of the Fees and of its Personnel, and shall indemnify the Company against any such liability, together with any related interest and penalties, that is assessed against the Company.
+3.2 The Consultant is solely responsible for all income tax, social security, provident fund, employees' state insurance, gratuity and other statutory contributions in respect of itself and its Personnel, and shall indemnify the Company against any such liability, together with any related interest and penalties, that is assessed against the Company.
 
 3.3 The Consultant determines the manner and method of performing the Services, subject to meeting the requirements of this Agreement, and shall provide its own tools, equipment and facilities at its own cost, except where the Company agrees in writing to provide access to its premises or systems for the purposes of the Services.
+
+3.4 The Consultant is free to provide services to others (subject to Clause 4), is not required to work fixed hours, and shall not hold itself out as an employee of the Company. Where its Personnel attend the Company's premises, the Consultant is their employer for all purposes and shall comply with all labour laws applicable to them, including any registration or licence required.
 
 4. CONFLICTS OF INTEREST
 
@@ -68,17 +72,19 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 6. FEES, INVOICING AND PAYMENT
 
-6.1 In consideration of the Services, the Company shall pay the Consultant the Fees set out in the Engagement Schedule.{value_sentence}
+6.1 In consideration of the Services, the Company shall pay the Consultant the Fees set out in the Engagement Schedule, in {fee_currency}.
 
-6.2 The Consultant shall invoice the Company monthly in arrears, or as set out in the Engagement Schedule. Each invoice must itemise the Services performed, include any supporting timesheets the Company reasonably requests, and comply with Applicable Law on tax invoices.
+6.2 {consultancy_invoicing} Each invoice must itemise the Services performed, include any supporting timesheets the Company reasonably requests, and comply with Applicable Law on tax invoices.
 
 6.3 The Company shall pay valid, undisputed invoices within {payment_days} days of receipt.
+
+6.3A If the Consultant is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Company of any change in that status, and the Company shall pay each valid, undisputed invoice within the period in Clause 6.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.
 
 6.4 The Company may withhold any amount it disputes in good faith, provided that it notifies the Consultant of the dispute and its reasons before the due date. The Company shall pay any amount agreed or determined to be due within {payment_days} days of resolution of the dispute.
 
 6.5 Any advance payment shall not exceed twenty percent (20%) of the total Fees and shall be credited against the first invoices issued under this Agreement.
 
-6.6 Fees are exclusive of goods and services tax, which the Company shall pay against a valid tax invoice. The Company may deduct any tax it is required by law to withhold and shall provide the Consultant with the relevant withholding certificate.
+6.6 The Fees exclude goods and services tax ("GST"). Where GST is chargeable on the Fees, each invoice shall show the Consultant's GSTIN and comply with GST law, and the Company shall pay the GST shown against that valid tax invoice. If the Company loses input tax credit because the Consultant fails to deposit the tax or report the invoice, the Consultant shall reimburse that credit with any interest and penalty. Where GST is payable by the Company under reverse charge, the Company shall pay it and the Fees shall not be increased. The Company may deduct any tax it is required by law to withhold and shall provide the relevant certificate. A Consultant resident outside India shall provide its tax residency certificate, Form 10F and any other document the law requires before the first payment; until then tax is withheld at the rate that applies without them.
 
 6.7 The Fees are the entire consideration for the Services. Expenses are reimbursed only where approved by the Company in writing in advance, at cost and in accordance with the Company's expenses policy, against receipts.
 
@@ -96,17 +102,17 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 (c) the Consultant shall promptly deliver to the Company all Work Product, whether complete or in progress, and all Company property in its possession; and
 (d) each Party shall return or destroy the other Party's Confidential Information in accordance with Clause 9.5.
 
-7.4 Termination does not affect any rights or remedies accrued up to the date of termination. Clauses 3, 6, 7.3, 7.4, 8, 9, 10, 11, 12, 13, 15 and any other provisions that by their nature are intended to survive, survive termination or expiry of this Agreement.
+7.4 Termination does not affect any rights or remedies accrued up to the date of termination. Clauses 2.5, 3, 6, 7.3, 7.4, 8, 9, 10, 11, 12, 13, 15 and any other provisions that by their nature are intended to survive, survive termination or expiry of this Agreement.
 
 8. INTELLECTUAL PROPERTY
 
-8.1 All Intellectual Property Rights in the Work Product vest in the Company on creation. The Consultant hereby assigns to the Company, by way of present assignment of future rights, all right, title and interest in and to the Work Product and all intellectual property in it, with full title guarantee, throughout the world and for the full term of those rights, and shall procure an equivalent assignment from each of its Personnel.
+8.1 All Intellectual Property Rights in the Work Product vest in the Company on creation. The Consultant hereby assigns to the Company, by way of present assignment of future rights, free of all encumbrances, all right, title and interest in and to the Work Product and all intellectual property in it, throughout the world and for the full term of those rights, and shall procure an equivalent assignment from each of its Personnel. The Fees are the full consideration for this assignment. To the extent permitted by law, section 19(4) of the Copyright Act, 1957 does not apply, and the assignment shall not lapse or revert for non-exercise of any right within any period.
 
-8.2 The Consultant irrevocably and unconditionally waives, and shall procure that its Personnel waive, all moral rights in the Work Product to the extent permitted by Applicable Law.
+8.2 The Consultant irrevocably and unconditionally waives, and shall procure that its Personnel waive, all moral rights in the Work Product to the extent permitted by Applicable Law, and undertakes not to assert them, including the rights under section 57 of the Copyright Act, 1957.
 
 8.3 To the extent any materials owned by the Consultant before the Effective Date are incorporated in the Work Product, the Consultant grants the Company a perpetual, irrevocable, worldwide, royalty-free, non-exclusive licence to use, copy, modify and sublicense those materials as part of the Work Product.
 
-8.4 The Consultant shall, during and after the term of this Agreement, execute such documents and do such things as the Company reasonably requests to perfect, register or enforce the Company's rights in the Work Product, and appoints the Company as its attorney to do so if it fails to act within fourteen (14) days of a request.
+8.4 The Consultant shall, during and after the term of this Agreement, execute such documents and do such things as the Company reasonably requests to perfect, register or enforce the Company's rights in the Work Product, and appoints the Company as its attorney to do so if it fails to act within fourteen (14) days of a request. Any power of attorney given under this clause shall be stamped as required by law, at the Company's cost.
 
 8.5 The Consultant warrants that the Work Product is its original work and that neither the Work Product nor its use by the Company infringes the Intellectual Property Rights of any third party.
 
@@ -133,7 +139,7 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 9.7 Each Party acknowledges that damages alone may not be an adequate remedy for breach of this Clause 9 and that the Disclosing Party is entitled to seek injunctive relief or specific performance for any threatened or actual breach.
 
-9.8 Where the Consultant processes personal data on behalf of the Company, it shall comply with the Digital Personal Data Protection Act, 2023 and any other applicable data protection law, act only on the Company's documented instructions, keep the data secure, and notify the Company within seventy-two (72) hours of becoming aware of any breach affecting it.
+9.8 Where the Consultant processes personal data on behalf of the Company, it shall comply with the Digital Personal Data Protection Act, 2023 and any other applicable data protection law, act only on the Company's documented instructions, keep the data secure, and notify the Company without undue delay, and in any event within twenty-four (24) hours (and within six (6) hours where it must be reported to the Indian Computer Emergency Response Team (CERT-In)), after becoming aware of any breach affecting it. {dpa_status}
 
 10. NON-SOLICITATION
 
@@ -152,23 +158,25 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 12.2 Subject to Clauses 12.3 and 12.4, neither Party is liable to the other for any indirect, special or consequential loss or damage.
 
 12.3 The limitations and exclusions in Clauses 12.1 and 12.2 do not apply to:
-(a) a Party's breach of Clause 9 (Confidentiality);
-(b) the Consultant's obligations under Clause 3.2 or Clause 11;
+(a) a Party's breach of Clause 9 (Confidentiality), including any personal data breach under Clause 9.8;
+(b) the Consultant's indemnities under Clause 11 (including for infringement of Intellectual Property Rights) and its obligations under Clause 3.2;
 (c) a Party's gross negligence or wilful misconduct;
 (d) fraud or fraudulent misrepresentation; or
 (e) death or personal injury caused by negligence.
 
 12.4 Nothing in this Agreement limits or excludes any liability that cannot be limited or excluded under Applicable Law.
 
+12.5 The Consultant shall maintain, during the term and for two (2) years after it ends, professional indemnity insurance of not less than {insurance_minimum} per claim, public liability insurance of not less than {public_liability_minimum} per claim, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than {insurance_minimum} per claim, and shall provide evidence of cover on request.
+
 13. GOVERNING LAW AND DISPUTE RESOLUTION
 
 13.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
 
-13.2 The Parties shall first attempt to resolve any dispute through good-faith negotiation for thirty (30) days after either Party notifies the other of the dispute. If it is not resolved within that period, the courts of competent jurisdiction under the laws of {governing_law} have exclusive jurisdiction, provided that either Party may seek urgent interim or injunctive relief in any court of competent jurisdiction.
+13.2 The Parties shall first attempt to resolve any dispute through good-faith negotiation for thirty (30) days after either Party notifies the other of the dispute. {dispute_resolution}
 
 14. NOTICES
 
-14.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in this Agreement or as notified in writing from time to time. A notice is effective on delivery by hand or courier, or on the next business day after it is sent by email, provided no delivery failure message is received.
+14.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in its signature block below or as notified in writing from time to time. A notice is effective on delivery by hand or courier, or on the next business day after it is sent by email, provided no delivery failure message is received.
 
 15. GENERAL
 
@@ -186,23 +194,40 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 15.7 Counterparts and electronic signature. This Agreement may be executed in counterparts, each of which is an original and which together constitute one instrument. Signatures delivered electronically or by any electronic signature service are binding.
 
+15.8 Costs and stamp duty. Each Party bears its own costs in connection with this Agreement. The Company shall bear any stamp duty payable on this Agreement.
+
 ENGAGEMENT SCHEDULE
 
-Services: [Describe the consultancy services to be provided.]
+Services: {services}
 
-Deliverables and timetable: [List each item of Work Product to be delivered and its due date.]
+Deliverables and timetable:
 
-Fees: [State the fee basis, e.g. a fixed fee, or a daily or hourly rate with a not-to-exceed amount.]
+{consultancy_deliverables}
 
-Consultant's key individual(s): [Name each individual who will perform the Services. The Consultant shall not replace them without the Company's prior written consent.]
+Fees: {consultancy_fee_basis} The Fees shall not exceed {fee_amount} except by a written amendment signed by both Parties. The Consultant shall invoice the Fees, and the Company shall pay them, in accordance with Clauses 6.2 to 6.4.
 
-Company contact: [Name and role.]
+Consultant's key individual(s): {key_individuals} The Consultant shall not replace any key individual named here without the Company's prior written consent.
+
+Company contact: {company_contact} The Company contact is the Consultant's point of contact at the Company for the Services and does not direct or supervise how, when or where the Consultant performs them.
 
 IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
 
-{company}                                    {counterparty}
+Signed for and on behalf of {company}
 
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
+By: ______________________________
+Name: {our_signatory_name}
+Title: {our_signatory_title}
+Date: ______________________________
+Registered office and address for notices: {company_address}
+Company number (CIN): ______________________________
+GSTIN: ______________________________
+
+Signed for and on behalf of {counterparty}
+
+By: ______________________________
+Name: {their_signatory_name}
+Title: {their_signatory_title}
+Date: ______________________________
+Address for notices: {counterparty_address}
+Company number: ______________________________
+Tax number (GSTIN or equivalent): ______________________________

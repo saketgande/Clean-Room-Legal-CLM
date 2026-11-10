@@ -1,0 +1,1 @@
+{"task": "T010", "agent": "frontend-dev", "status": "done", "detail": "page.tsx, _template-list, _template-detail, _check-all, _leave-guard + page.test.tsx (48 tests, mutation-checked) done; typecheck: only the 2 stale .next/validator errors; full suite 63 files / 993 tests pass", "updated": "2026-10-15T08:17:08Z"}

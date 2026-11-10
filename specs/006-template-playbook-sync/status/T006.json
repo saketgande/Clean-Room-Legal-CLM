@@ -1,0 +1,1 @@
+{"task": "T006", "agent": "backend-dev", "status": "done", "detail": "follow-up done: getattr dropped (stub has review_playbook_id); risk note names the lost pin; 3 note tests + exact old note kept for unpinned; 69 pass on requested suites; ruff clean", "updated": "2026-10-15T07:54:31Z"}

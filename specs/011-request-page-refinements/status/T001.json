@@ -1,0 +1,1 @@
+{"task": "T001", "agent": "backend-dev", "status": "done", "detail": "GET /intake/requests/{id}/activity + activity.py + 13 tests; full suite 4581 passed, 1 known unrelated failure; ruff clean", "updated": "2026-10-23T10:30:00Z"}

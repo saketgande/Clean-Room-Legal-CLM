@@ -1,0 +1,1 @@
+{"task": "T005", "agent": "backend-dev", "status": "done", "detail": "P2-1 fixed in drafting.py draft_hold (missing/blank paper = Our template, hold only); 8 new hold tests; named files 306 passed, flows/workflow 144 passed, ruff clean, /healthz 200", "updated": "2026-10-15T16:51:19Z"}

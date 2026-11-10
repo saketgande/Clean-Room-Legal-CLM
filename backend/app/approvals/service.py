@@ -741,6 +741,7 @@ class ApprovalsService:
         request_id: str | None = None,
     ) -> ApprovalRequest:
         db = self.db
+        comment = (comment or "").strip() or None
         if decision == "reject" and not comment:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Rejection requires a comment")
         # Fail closed: the duplicate-decision and authority checks key off the
@@ -885,10 +886,14 @@ class ApprovalsService:
         )
         return approval
 
-    def _user_eligible_to_decide(self, *, approval: ApprovalRequest, user) -> bool:
-        """Who is *allowed* to decide this step (identity/role/team), ignoring stage."""
+    def _user_eligible_to_decide(
+        self, *, approval: ApprovalRequest, user, assigned_only: bool = False
+    ) -> bool:
+        """Who is *allowed* to decide this step (identity/role/team), ignoring stage.
+        ``assigned_only`` drops the admin shortcut: deciding needs an assignment, while
+        viewing and reassigning keep the shortcut."""
         db = self.db
-        if has_permission(user.permission_values, "approval:admin"):
+        if not assigned_only and has_permission(user.permission_values, "approval:admin"):
             return True
         if approval.requested_by_user_id == user.id:
             return False
@@ -940,7 +945,7 @@ class ApprovalsService:
         # Every in-app way of deciding (web route, assistant tool) comes through here,
         # so these checks can't be skipped by calling from somewhere else.
         db = self.db
-        if not self._user_eligible_to_decide(approval=approval, user=user):
+        if not self._user_eligible_to_decide(approval=approval, user=user, assigned_only=True):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
         if decision == "approve":
             self._enforce_approve_authority(approval=approval, user=user, request_id=request_id)
@@ -1173,8 +1178,12 @@ async def _apply_decision(
     )
 
 
-def _user_eligible_to_decide(db: Session, *, approval: ApprovalRequest, user) -> bool:
-    return ApprovalsService(db)._user_eligible_to_decide(approval=approval, user=user)
+def _user_eligible_to_decide(
+    db: Session, *, approval: ApprovalRequest, user, assigned_only: bool = False
+) -> bool:
+    return ApprovalsService(db)._user_eligible_to_decide(
+        approval=approval, user=user, assigned_only=assigned_only
+    )
 
 
 async def reassign_rung(

@@ -1,14 +1,27 @@
 // Typed endpoint functions, grouped by backend module.
 import { apiFetch, apiDownload } from "./api";
 import type {
+  RequestSummary,
+  ContractTypeOption,
+  TypeNeededList,
   AdminSetting,
+  CheckAllResult,
+  DraftContractResult,
   DraftingTemplate,
   DraftingTemplateSummary,
   DraftingTemplateVersion,
+  TemplateCheck,
+  TemplateMutationResult,
+  TemplatePlaybookChange,
+  TemplateStandardAdopt,
+  TemplateSavePayload,
+  TemplateTypeOptions,
+  TemplateVersionAction,
   AiUsageSummary,
   AiUsageTraffic,
   ApprovalChainStep,
   ApprovalRequest,
+  ApprovalSummary,
   ApprovalReviewContext,
   ApproverBrief,
   AssistantMessage,
@@ -37,6 +50,7 @@ import type {
   SignerOption,
   ExternalShareView,
   ContractDeviation,
+  ReviewHistoryVersion,
   DraftIssueFixesResponse,
   IssueFixJob,
   ReviewRetryResponse,
@@ -60,6 +74,7 @@ import type {
   NoticeReminderRun,
   NoticeSummary,
   Obligation,
+  ObligationSummary,
   OrganizationResponse,
   BuildChatResponse,
   ExtractedDoc,
@@ -95,6 +110,8 @@ import type {
   IntakeApprovalRung,
   IntakeTask,
   IntakeHandoff,
+  RequestActivity,
+  RequestCounterparty,
   IntakeAssignee,
   IntakeMyWork,
   IntakeSlaLegs,
@@ -572,6 +589,13 @@ export const orgApi = {
 export const contractsApi = {
   list: () => apiFetch<ContractResponse[]>("/contracts"),
   get: (id: string) => apiFetch<ContractResponse>(`/contracts/${id}`),
+  types: () => apiFetch<ContractTypeOption[]>("/contracts/types"),
+  typeNeeded: () => apiFetch<TypeNeededList>("/contracts/type-needed"),
+  setType: (id: string, contract_type: string) =>
+    apiFetch<ContractResponse>(`/contracts/${id}/type`, {
+      method: "PUT",
+      body: { contract_type },
+    }),
   risk: (id: string) =>
     apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`),
   computeRisk: (id: string) =>
@@ -615,6 +639,8 @@ export const contractsApi = {
     apiFetch<ReviewRetryResponse>(`/contracts/${id}/review/retry`, { method: "POST", body: {} }),
   deviations: (id: string) =>
     apiFetch<ContractDeviation[]>(`/contracts/${id}/deviations`),
+  reviewHistory: (id: string) =>
+    apiFetch<ReviewHistoryVersion[]>(`/contracts/${id}/review-history`),
   plainSummary: (id: string) =>
     apiFetch<{ summary: string; generated: boolean }>(`/contracts/${id}/plain-summary`),
   logCounterpartyRevision: (id: string, file: File, change_summary?: string) => {
@@ -962,15 +988,30 @@ export const workflowsApi = {
 // ---- Playbooks -----------------------------------------------------------
 // ---- Drafting templates (our standard paper, one per playbook) -------------
 export const draftingTemplatesApi = {
-  list: () => apiFetch<DraftingTemplateSummary[]>("/drafting-templates"),
+  // `=== true`: react-query hands a bare `queryFn: draftingTemplatesApi.list` its context object.
+  list: (includeRetired = false) =>
+    apiFetch<DraftingTemplateSummary[]>(`/drafting-templates${includeRetired === true ? "?include_retired=true" : ""}`),
   get: (key: string) => apiFetch<DraftingTemplate>(`/drafting-templates/${key}`),
   versions: (key: string) => apiFetch<DraftingTemplateVersion[]>(`/drafting-templates/${key}/versions`),
   preview: (key: string, body: string) =>
     apiFetch<{ text: string }>(`/drafting-templates/${key}/preview`, { method: "POST", body: { body } }),
-  save: (key: string, body: string, note?: string) =>
-    apiFetch<DraftingTemplate>(`/drafting-templates/${key}`, { method: "PUT", body: { body, note } }),
-  reset: (key: string, note?: string) =>
-    apiFetch<DraftingTemplate>(`/drafting-templates/${key}/reset`, { method: "POST", body: { note } }),
+  save: (key: string, payload: TemplateSavePayload) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}`, { method: "PUT", body: payload }),
+  reset: (key: string, payload: TemplateVersionAction) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/reset`, { method: "POST", body: payload }),
+  restore: (key: string, version: number, payload: TemplateVersionAction) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/versions/${version}/restore`, { method: "POST", body: payload }),
+  // Queues one paid AI review and returns the recorded check (202). `body` = the editor's unsaved text; left out = the saved wording.
+  check: (key: string, body?: string) =>
+    apiFetch<TemplateCheck>(`/drafting-templates/${key}/checks`, { method: "POST", body: body === undefined ? {} : { body } }),
+  checks: (key: string) => apiFetch<TemplateCheck[]>(`/drafting-templates/${key}/checks`),
+  checkDetail: (key: string, checkId: string) => apiFetch<TemplateCheck>(`/drafting-templates/${key}/checks/${checkId}`),
+  checkAll: () => apiFetch<CheckAllResult>("/drafting-templates/check-all", { method: "POST", body: {} }),
+  setPlaybook: (key: string, payload: TemplatePlaybookChange) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/playbook`, { method: "PUT", body: payload }),
+  adoptStandardPlaybook: (key: string, payload: TemplateStandardAdopt) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/playbook/standard`, { method: "POST", body: payload }),
+  options: () => apiFetch<TemplateTypeOptions>("/drafting-templates/options"),
 };
 
 export const playbooksApi = {
@@ -1090,10 +1131,11 @@ export const approvalsApi = {
     id: string,
     decision: "approve" | "reject",
     comment?: string,
+    acknowledgedOpenRisks?: boolean,
   ) =>
     apiFetch<ApprovalRequest>(`/approvals/requests/${id}/decision`, {
       method: "POST",
-      body: { decision, comment },
+      body: { decision, comment, acknowledged_open_risks: acknowledgedOpenRisks ?? false },
     }),
   reassign: (id: string, to_user_id: string, kind: "delegate" | "escalate") =>
     apiFetch<ApprovalRequest>(`/approvals/requests/${id}/reassign`, {
@@ -1178,8 +1220,9 @@ export const noticesApi = {
 };
 
 export const obligationsApi = {
-  list: (params: { contract_id?: string; status_filter?: string; limit?: number } = {}) =>
+  list: (params: { contract_id?: string; status_filter?: string; date_state?: string; limit?: number } = {}) =>
     apiFetch<Obligation[]>(`/obligations${qs(params)}`),
+  summary: () => apiFetch<ObligationSummary>("/obligations/summary"),
   update: (id: string, payload: Record<string, unknown>) =>
     apiFetch<Obligation>(`/obligations/${id}`, {
       method: "PATCH",
@@ -1188,13 +1231,16 @@ export const obligationsApi = {
   complete: (id: string) =>
     apiFetch<Obligation>(`/obligations/${id}/complete`, { method: "POST" }),
   extract: (contract_id: string) =>
-    apiFetch<{ job_id: string; status: string }>(
+    apiFetch<{ job_id: string; status: string; started?: boolean }>(
       `/obligations/extract${qs({ contract_id })}`,
       { method: "POST" },
     ),
   runReminders: () =>
     apiFetch<{
       reminders_sent: number;
+      reminders_failed: number;
+      /** Left unsent: nobody active who can open the contract to send it to. */
+      reminders_skipped: number;
       marked_overdue: number;
       marked_due_soon: number;
     }>("/obligations/run-reminders", { method: "POST" }),
@@ -1515,6 +1561,11 @@ export const intakeApi = {
   handoff: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/handoff`, { method: "POST", body: payload }),
   handoffs: (id: string) => apiFetch<IntakeHandoff[]>(`/intake/requests/${id}/handoffs`),
+  activity: (id: string) => apiFetch<RequestActivity>(`/intake/requests/${id}/activity`),
+  counterparty: (id: string) =>
+    apiFetch<RequestCounterparty>(`/intake/requests/${id}/counterparty`),
+  requestSummary: (id: string) =>
+    apiFetch<RequestSummary>(`/intake/requests/${id}/summary`),
 
   // tasks
   tasks: (id: string) => apiFetch<IntakeTask[]>(`/intake/requests/${id}/tasks`),
@@ -1535,6 +1586,11 @@ export const intakeApi = {
     apiFetch<IntakeApprovalPreview>("/intake/approval-preview", { method: "POST", body }),
   approvalChain: (id: string) =>
     apiFetch<IntakeApprovalRung[]>(`/intake/requests/${id}/approval-chain`),
+  approvalSummary: (id: string, approvalRequestId?: string) =>
+    apiFetch<ApprovalSummary>(
+      `/intake/requests/${id}/approval-summary` +
+        (approvalRequestId ? `?approval_request_id=${encodeURIComponent(approvalRequestId)}` : ""),
+    ),
 
   // channel sync — Gmail intake polling (email → request)
   gmailSync: () =>
@@ -1546,7 +1602,7 @@ export const intakeApi = {
     apiFetch<IntakeRequest>(`/intake/requests/${id}/promote`, {
       method: "POST", body: { target, target_id: targetId } }),
   draftContract: (id: string) =>
-    apiFetch<IntakeRequest>(`/intake/requests/${id}/draft-contract`, { method: "POST" }),
+    apiFetch<DraftContractResult>(`/intake/requests/${id}/draft-contract`, { method: "POST" }),
   ingestAttachment: (id: string) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/ingest-attachment`, { method: "POST" }),
 

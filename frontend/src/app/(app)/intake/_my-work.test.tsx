@@ -38,7 +38,7 @@ function mount(onOpen = vi.fn()) {
   return { qc, onOpen };
 }
 
-const tile = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+const tile = (label: string) => screen.getByRole("button", { name: new RegExp(`^${label}`, "i") });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -53,9 +53,9 @@ describe("approvals waiting on the user", () => {
     mount();
     expect(await screen.findByText("Acme MSA")).toBeInTheDocument();
     expect(screen.getByText("Beta NDA")).toBeInTheDocument();
-    expect(tile("approvals")).toHaveTextContent("2");
-    expect(tile("on your desk")).toHaveTextContent("2");
-    const card = screen.getByText("Acme MSA").closest(".tcard") as HTMLElement;
+    expect(tile("Approvals")).toHaveTextContent("2");
+    expect(tile("On your desk")).toHaveTextContent("2");
+    const card = screen.getByText("Acme MSA").closest("tr") as HTMLElement;
     expect(within(card).getByRole("link", { name: "Review" })).toHaveAttribute("href", "/approvals");
     expect(screen.queryByText(/inbox zero/)).toBeNull();
   });
@@ -64,8 +64,7 @@ describe("approvals waiting on the user", () => {
     h.approvalsApi.list.mockResolvedValue([approval({ overdue: true, due_at: new Date(Date.now() - 3_600_000).toISOString() }), approval({ id: "a-2" })]);
     mount();
     await screen.findAllByText("Waiting for your approval");
-    expect(tile("overdue")).toHaveTextContent("1");
-    expect(screen.getByText("1 overdue")).toBeInTheDocument();
+    expect(tile("Overdue")).toHaveTextContent("1");
   });
 
   it("leaves out rows already decided and rows the user may not decide", async () => {
@@ -78,7 +77,7 @@ describe("approvals waiting on the user", () => {
     await screen.findByText("Acme MSA");
     expect(screen.queryByText("Done deal")).toBeNull();
     expect(screen.queryByText("Someone else's")).toBeNull();
-    expect(tile("approvals")).toHaveTextContent("1");
+    expect(tile("Approvals")).toHaveTextContent("1");
   });
 
   it("names an approval on an intake request by its reference and title", async () => {
@@ -94,7 +93,7 @@ describe("approvals waiting on the user", () => {
     h.intakeApi.myWork.mockResolvedValue({ awaiting_review: [], my_tickets: [], my_tasks: [task()] });
     mount();
     expect(await screen.findByText("Collect the signed NDA")).toBeInTheDocument();
-    expect(tile("approvals")).toHaveTextContent("0");
+    expect(tile("Approvals")).toHaveTextContent("0");
   });
 
   it("only say 'nothing on your desk' when there are no approvals either", async () => {
@@ -133,6 +132,7 @@ describe("requests you raised", () => {
   it("says 'awaiting triage' and 'not started' while nobody has begun", async () => {
     h.intakeApi.mine.mockResolvedValue([raised()]);
     mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Raised by you/ }));
     const r = await row("REQ-7013");
     expect(within(r).getByText("awaiting triage")).toBeInTheDocument();
     expect(within(r).getByText("not started")).toBeInTheDocument();
@@ -141,6 +141,7 @@ describe("requests you raised", () => {
   it("says 'in progress' once a person has drafted the contract, even with no workflow", async () => {
     h.intakeApi.mine.mockResolvedValue([raised({ contract_id: "c-1" })]);
     mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Raised by you/ }));
     const r = await row("REQ-7013");
     expect(within(r).getByText("in progress")).toBeInTheDocument();
     expect(within(r).getByText("contract drafted")).toBeInTheDocument();

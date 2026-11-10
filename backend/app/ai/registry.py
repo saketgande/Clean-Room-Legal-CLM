@@ -79,7 +79,9 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.metadata_extraction",
         enabled_by_default=True,
-        max_tokens=2048,
+        # Measured on the dev ledger: 11 of 112 runs (the long contracts) stopped at exactly 2048 and failed.
+        # Successful answers use about 1,000 tokens (90th percentile 1,300), so this is room, not a charge.
+        max_tokens=4096,
     ),
     SkillSpec(
         name="clause_extraction",
@@ -99,8 +101,8 @@ for registered_spec in [
         # Each clause comes back with its full text (it's what citations quote), so
         # a full-length contract needs more than 4096: the playbook-aligned
         # templates (2.4-4k words) were cut off there and stored no clauses.
-        # 8000 is settings.claude_max_tokens_ceiling; a contract that still
-        # doesn't fit now fails the job visibly (the AI gateway rejects a cut-off answer).
+        # settings.claude_max_tokens_ceiling caps this (boot refuses a lower one); a contract
+        # that still doesn't fit fails the job visibly (the AI gateway rejects a cut-off answer).
         max_tokens=8000,
     ),
     SkillSpec(
@@ -249,8 +251,8 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.obligation_extraction",
         enabled_by_default=True,
-        # Each obligation now carries a typed timing block; 4096 cut off long contracts.
-        max_tokens=8192,
+        # Each obligation carries a typed timing block and a quote; 8000 cut off a 25k-character SaaS contract.
+        max_tokens=16000,
     ),
     SkillSpec(
         name="renewal_extraction",
@@ -369,7 +371,7 @@ for registered_spec in [
         description="Compare a contract against a governed playbook version and return cited deviations.",
         execution_mode="playbook_run",
         prompt_key="playbook_review",
-        prompt_version="1.0.1",
+        prompt_version="1.0.7",
         input_model=None,
         output_model=PlaybookReviewOutput,
         required_permission="playbook:run",
@@ -380,7 +382,7 @@ for registered_spec in [
         enabled_by_default=True,
         # Counterparty paper deviates on most rules, and each deviation carries its
         # quote and redline: a 4-page "their paper" NDA overran 4096 and stored no
-        # review. 8000 is settings.claude_max_tokens_ceiling.
+        # review. settings.claude_max_tokens_ceiling caps this.
         max_tokens=8000,
     ),
     SkillSpec(

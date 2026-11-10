@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.ai.outcomes import Outcome, failure_payload
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import JobStatus
@@ -45,8 +48,33 @@ def _reap_stuck_jobs(db: Session, *, org_id: str) -> None:
             "Timed out — no progress within the expected window "
             "(the worker may have stopped). Re-run to retry."
         )
+        job.metadata_json = {**(job.metadata_json or {}), "failure": failure_payload(Outcome.INTERNAL, job.error_message)}
         job.finished_at = utcnow()
     db.commit()
+
+
+def _about_a_reachable_contract(user):
+    """A job's error text can carry contract wording (a failed insert prints its parameters), so a job on
+    a contract the user cannot open - a wall or clearance seals it off even from an admin - is not theirs
+    to read, list or act on."""
+    return or_(
+        JobRun.resource_type.is_(None),
+        JobRun.resource_type != "contract",
+        JobRun.resource_id.in_(select(Contract.id).where(accessible_contract_filter(user))),
+        # No such contract (an orphaned job): there is nothing there to protect.
+        JobRun.resource_id.not_in(select(Contract.id)),
+    )
+
+
+def _job_or_404(db: Session, job_id: str, user) -> JobRun:
+    job = db.scalar(
+        select(JobRun).where(
+            JobRun.id == job_id, JobRun.org_id == user.org_id, _about_a_reachable_contract(user)
+        )
+    )
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    return job
 
 
 @router.get("")
@@ -59,7 +87,7 @@ def list_jobs(
 ):
     """Newest first. ``limit``/``offset`` page through all of them; ``status`` narrows the list."""
     _reap_stuck_jobs(db, org_id=current_user.org_id)
-    query = select(JobRun).where(JobRun.org_id == current_user.org_id)
+    query = select(JobRun).where(JobRun.org_id == current_user.org_id, _about_a_reachable_contract(current_user))
     if job_status is not None:
         query = query.where(JobRun.status == job_status)
     # The id breaks ties so rows created in the same instant never move between pages.
@@ -92,9 +120,7 @@ def get_job(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
 ):
-    job = db.get(JobRun, job_id)
-    if job is None or job.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    job = _job_or_404(db, job_id, current_user)
     return job
 
 
@@ -104,9 +130,7 @@ def cancel_job(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
 ):
-    job = db.get(JobRun, job_id)
-    if job is None or job.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    job = _job_or_404(db, job_id, current_user)
     if job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Job is already terminal")
     job.status = JobStatus.CANCELLED
@@ -123,9 +147,7 @@ def enqueue_job(
     current_user=Depends(require_permission("admin_panel:access")),
     jobs_service: JobsService = Depends(get_jobs_service),
 ):
-    job = db.get(JobRun, job_id)
-    if job is None or job.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    job = _job_or_404(db, job_id, current_user)
     if job.status not in {JobStatus.QUEUED, JobStatus.FAILED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only queued or failed jobs can be enqueued")
     jobs_service.dispatch_job(job=job)
