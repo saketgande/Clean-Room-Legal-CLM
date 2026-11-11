@@ -253,6 +253,17 @@ export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (
   // The queue lists open requests; the "Show" filter swaps it for the finished ones.
   const [showDone, setShowDone] = useState(false);
   const [allOwners, setAllOwners] = useState(false);
+  // The two side cards fold independently; with both folded the column shrinks to a slim icon rail
+  // and the table takes the width. Remembered per browser (a convenience, so storage may be absent).
+  const [fold, setFold] = useState<{ attn: boolean; work: boolean }>({ attn: false, work: false });
+  useEffect(() => {
+    try { const v = JSON.parse(localStorage.getItem("intake.sidefold") ?? "null"); if (v) setFold({ attn: !!v.attn, work: !!v.work }); } catch { /* ignore */ }
+  }, []);
+  const toggleFold = (k: "attn" | "work") => setFold((f) => {
+    const n = { ...f, [k]: !f[k] };
+    try { localStorage.setItem("intake.sidefold", JSON.stringify(n)); } catch { /* ignore */ }
+    return n;
+  });
   const mode = baseMode === "pool" && showDone ? "completed" : baseMode;
   const now = useNow(30_000);
   const qc = useQueryClient();
@@ -384,7 +395,7 @@ export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (
     <div className="li-board">
       <style dangerouslySetInnerHTML={{ __html: LI_CSS }} />
 
-      <div className="split">
+      <div className={`split${fold.attn && fold.work ? " mini" : ""}`}>
       <div className="maincol">
       {/* status tabs filter the table; insight cards sit on the right */}
       {(
@@ -526,13 +537,17 @@ export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (
       </div>
       {(
         <aside className="side" aria-label="Queue insights">
-          <section className="scard attn">
+          <section className={`scard attn${fold.attn ? " folded" : ""}`}>
             <header>
-              <span className="sic crit"><AlertTriangle className="ic" /></span>
-              <h3>Needs attention</h3>
-              {priority.length > 4 && <button type="button" className="slink" onClick={() => { setOwnerSel(null); setStatusSel(new Set(["stuck", "at_risk"])); showTable(); }}>View all</button>}
+              <button type="button" className="shead" aria-expanded={!fold.attn} aria-label={`${fold.attn ? "Expand" : "Collapse"} Needs attention`} title={fold.attn ? "Expand" : "Collapse"} onClick={() => toggleFold("attn")}>
+                <span className="sic crit"><AlertTriangle className="ic" />{fold.attn && overdue.length > 0 && <b className="sbadge num">{overdue.length}</b>}</span>
+                <h3>Needs attention</h3>
+                {fold.attn && overdue.length > 0 && <span className="ssub crit">{overdue.length} overdue</span>}
+                <ChevronDown className="ic schev" />
+              </button>
+              {!fold.attn && priority.length > 4 && <button type="button" className="slink" onClick={() => { setOwnerSel(null); setStatusSel(new Set(["stuck", "at_risk"])); showTable(); }}>View all</button>}
             </header>
-            {priority.length === 0 ? <p className="allclear">Nothing overdue or at risk. The queue is healthy.</p> : (
+            {fold.attn ? null : priority.length === 0 ? <p className="allclear">Nothing overdue or at risk. The queue is healthy.</p> : (
               <>
                 <div className="hero"><span className="hn crit num">{overdue.length}</span><span className="hl">overdue</span>{atRisk.length > 0 && <span className="hchip">{atRisk.length} at risk</span>}</div>
                 <ul className="alist">
@@ -555,13 +570,16 @@ export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (
               </>
             )}
           </section>
-          <section className="scard work">
+          <section className={`scard work${fold.work ? " folded" : ""}`}>
             <header>
-              <span className="sic"><Users className="ic" /></span>
-              <h3>Who has the work</h3>
-              <span className="ssub">{loadAll.length} owners</span>
+              <button type="button" className="shead" aria-expanded={!fold.work} aria-label={`${fold.work ? "Expand" : "Collapse"} Who has the work`} title={fold.work ? "Expand" : "Collapse"} onClick={() => toggleFold("work")}>
+                <span className="sic"><Users className="ic" /><b className="sbadge ind num">{loadAll.length}</b></span>
+                <h3>Who has the work</h3>
+                <span className="ssub">{loadAll.length} owners</span>
+                <ChevronDown className="ic schev" />
+              </button>
             </header>
-            {load.length === 0 ? <p className="allclear">No work is in flight.</p> : (
+            {fold.work ? null : load.length === 0 ? <p className="allclear">No work is in flight.</p> : (
               <ul className={`wlist${allOwners ? " scroll" : ""}`}>
                 {(allOwners ? loadAll : loadAll.slice(0, 5)).map(([name, v], i) => {
                   const on = ownerSel === name;
@@ -578,7 +596,7 @@ export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (
                 })}
               </ul>
             )}
-            {loadAll.length > 5 && <button type="button" className="more moreb" aria-expanded={allOwners} onClick={() => setAllOwners((o) => !o)}>{allOwners ? "Show fewer" : `+${loadAll.length - 5} more owners`}</button>}
+            {!fold.work && loadAll.length > 5 && <button type="button" className="more moreb" aria-expanded={allOwners} onClick={() => setAllOwners((o) => !o)}>{allOwners ? "Show fewer" : `+${loadAll.length - 5} more owners`}</button>}
           </section>
         </aside>
       )}
@@ -1353,4 +1371,24 @@ const LI_CSS = `
 .li-board tbody tr:hover .atype{transform:scale(1.06)} .li-board .atype{transition:transform .2s}
 .li-board tbody tr:hover .own>i{transform:scale(1.1)} .li-board .own>i{transition:transform .2s}
 @media (prefers-reduced-motion:reduce){.li-board tbody tr,.li-board .rtip{animation:none!important}}
+/* ---- collapsible side cards; both folded = slim icon rail, table fills the width ---- */
+.li-board .split{transition:grid-template-columns .22s ease}
+.li-board .split.mini{grid-template-columns:minmax(0,1fr) 56px}
+.li-board .scard header{align-items:center}
+.li-board .shead{all:unset;box-sizing:border-box;flex:1;min-width:0;display:flex;align-items:center;gap:10px;cursor:pointer;border-radius:10px}
+.li-board .shead:focus-visible{outline:2px solid var(--c-ind);outline-offset:2px}
+.li-board .shead h3{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li-board .schev{width:16px;height:16px;flex:none;color:var(--ink-3);transition:transform .2s}
+.li-board .scard.folded .schev{transform:rotate(-90deg)}
+.li-board .scard.folded header{margin-bottom:0}
+.li-board .sic{position:relative;flex:none}
+.li-board .sbadge{display:none;position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:99px;font:700 10px/16px var(--sans);text-align:center;background:var(--c-red);color:#fff}
+.li-board .sbadge.ind{background:var(--c-ind)}
+.li-board .split.mini .scard{padding:10px 8px}
+.li-board .split.mini .shead h3,.li-board .split.mini .shead .ssub,.li-board .split.mini .schev,.li-board .split.mini .slink{display:none}
+.li-board .split.mini .shead{justify-content:center}
+.li-board .split.mini .sbadge{display:block}
+.li-board .split.mini .req .nm,.li-board .split.mini .prev{max-width:520px}
+.li-board .split.mini td .cp,.li-board .split.mini td .ty,.li-board .split.mini .stbox{max-width:220px}
+@media (max-width:1180px){.li-board .split.mini{grid-template-columns:minmax(0,1fr)}.li-board .split.mini .side{display:flex;flex-direction:row}.li-board .split.mini .scard{flex:1}.li-board .split.mini .shead h3,.li-board .split.mini .shead .ssub{display:block}.li-board .split.mini .sbadge{display:none}}
 `;
