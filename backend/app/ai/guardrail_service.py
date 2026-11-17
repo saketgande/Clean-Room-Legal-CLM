@@ -147,6 +147,14 @@ async def _check(messages: list[dict], rail_type_name: str):
     return await rails.check_async(messages=messages, rail_types=[RailType(rail_type_name)])
 
 
+class GuardrailBlocked(HTTPException):
+    """A guardrail refused a typed question or a model answer (HTTP 422, carrying the user-facing message)."""
+
+    def __init__(self, message: str, rail: str | None = None) -> None:
+        super().__init__(status.HTTP_422_UNPROCESSABLE_ENTITY, message)
+        self.rail = rail
+
+
 def _failure(text: str) -> GuardrailResult:
     logger.exception("NeMo guardrail evaluation failed")
     if settings.guardrails_fail_closed:
@@ -205,6 +213,35 @@ async def apply_output_guardrails(
         logger.warning("NeMo output rail %r withheld an answer (chars=%d)", rail, len(answer))
         return GuardrailResult(False, _output_block_message(rail), "nemo_output", rail)
     return GuardrailResult(True, result.content or answer)
+
+
+async def release_answer_text(
+    db: Session,
+    *,
+    user_text: str,
+    text: str,
+    org_id: str,
+    actor_user_id: str | None,
+    request_id: str | None,
+    resource_type: str,
+    resource_id: str | None,
+) -> tuple[str, bool]:
+    """Output guardrails on one streamed segment of an answer; returns (the text to show, whether it passed): the
+    rail's refusal if it blocked the segment, with the block audited. Used by the AI gateway's streaming path."""
+    verdict = await apply_output_guardrails(user_text, text)
+    if not verdict.allowed:
+        audit_guardrail_block(
+            db,
+            result=verdict,
+            text_chars=len(text),
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            request_id=request_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        db.commit()
+    return verdict.message, verdict.allowed
 
 
 async def apply_retrieval_guardrails(question: str, retrieved_text: str) -> GuardrailResult:
@@ -293,7 +330,7 @@ async def enforce_input_guardrails(
         resource_id=resource_id,
     )
     db.commit()
-    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, result.message)
+    raise GuardrailBlocked(result.message, result.rail)
 
 
 async def enforce_output_guardrails(
@@ -323,7 +360,7 @@ async def enforce_output_guardrails(
         resource_id=resource_id,
     )
     db.commit()
-    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, result.message)
+    raise GuardrailBlocked(result.message, result.rail)
 
 
 async def enforce_retrieval_guardrails(
@@ -352,4 +389,4 @@ async def enforce_retrieval_guardrails(
         resource_id=resource_id,
     )
     db.commit()
-    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, result.message)
+    raise GuardrailBlocked(result.message, result.rail)

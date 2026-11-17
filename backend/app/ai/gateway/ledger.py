@@ -57,6 +57,9 @@ class AICallContext:
     assistant_run_id: str | None = None
     tool_call_id: str | None = None
     skill_run_id: str | None = None
+    # The caller has already checked the typed question and the answer (an assistant tool, whose chat turn is
+    # guarded as a whole): the gateway must not check them again.
+    guardrails_handled: bool = False
     # Set only by the AI exam (backend/eval/exam) on its own direct calls, so its
     # spend is viewable apart from real usage. App code never sets it: NULL = real.
     eval_run_id: str | None = None

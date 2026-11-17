@@ -160,6 +160,8 @@ for registered_spec in [
         feature_flag="feature.ai.playbook_chat_build",
         enabled_by_default=True,
         max_tokens=12000,
+        user_text_key="message",
+        answer_key="reply",
     ),
     SkillSpec(
         name="playbook_recommendations",
@@ -196,6 +198,7 @@ for registered_spec in [
         # Headroom for a full multi-issue memo without truncation (clamped by
         # claude_max_tokens_ceiling). A cut-off answer reads as "incomplete".
         max_tokens=8000,
+        user_text_key="message",
     ),
     SkillSpec(
         name="contract_docx_generation",
@@ -293,6 +296,8 @@ for registered_spec in [
         # contract in the prompt too, a contract-scoped answer quoted text that
         # retrieval never returned, matched 0 citations and was suppressed whole.
         include_contract_text=False,
+        user_text_key="question",
+        answer_key="answer",
     ),
     SkillSpec(
         name="portfolio_filter",
@@ -312,6 +317,7 @@ for registered_spec in [
         max_tokens=1500,
         # The input is the question alone; no contract is read here.
         include_contract_text=False,
+        user_text_key="question",
     ),
     SkillSpec(
         name="tabular_cell_extraction",
@@ -364,6 +370,8 @@ for registered_spec in [
         feature_flag="feature.ai.tabular_review",
         enabled_by_default=True,
         max_tokens=2048,
+        user_text_key="question",
+        answer_key="answer",
     ),
     SkillSpec(
         name="playbook_review",

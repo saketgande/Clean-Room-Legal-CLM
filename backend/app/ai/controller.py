@@ -11,6 +11,7 @@ from app.ai.citations import validate_citations
 from app.ai.confirmations import confirmation_details
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.gateway import AICallContext, gateway_for
+from app.ai.guardrail_service import GuardrailBlocked
 from app.ai.models import AICitation, AIConfirmation, AISkillRun
 from app.ai.outcomes import SetupError, failure_from_exception
 from app.ai.prompt_builder import prompt_builder
@@ -442,6 +443,10 @@ class AIController:
                     log_input=skill_run.input_payload,
                     prompt=prompt_bundle,
                     record_on=db,
+                    # Guardrails at the LLM level: the gateway checks the question before the first round
+                    # and each round's text before it is shown.
+                    user_text_message=message,
+                    check_question=iteration == 0,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
@@ -606,12 +611,32 @@ class AIController:
                 messages.append({"role": "user", "content": tool_result_blocks})
 
             raise RuntimeError("Assistant tool loop exceeded maximum iterations")
+        except GuardrailBlocked as blocked:
+            # A refused question is an answer, not a failure: the chat shows the refusal like any reply.
+            self._keep_refused_question_out_of_history(db, assistant_run_id=assistant_run_id, rail=blocked.rail)
+            skill_run.status = AISkillRunStatus.SUCCEEDED
+            skill_run.validation_status = AIValidationStatus.VALID
+            skill_run.output_payload = {"answer": blocked.detail, "refused": True}
+            skill_run.finished_at = utcnow()
+            db.commit()
+            yield {"event": "message_delta", "payload": {"text": blocked.detail}}
+            return
         except Exception:
             skill_run.status = AISkillRunStatus.FAILED
             skill_run.validation_status = AIValidationStatus.INVALID
             skill_run.finished_at = utcnow()
             db.commit()
             raise
+
+    @staticmethod
+    def _keep_refused_question_out_of_history(db: Session, *, assistant_run_id: str, rail: str | None) -> None:
+        """A question refused because it contained sensitive data is saved as a placeholder, never as written."""
+        if not (rail or "").startswith("detect sensitive data"):
+            return
+        run = db.get(AssistantRun, assistant_run_id)
+        message = db.get(AssistantMessage, run.user_message_id) if run is not None and run.user_message_id else None
+        if message is not None:
+            message.content = "[Question not stored: it contained sensitive data.]"
 
     async def resume_assistant_run(
         self,
@@ -766,6 +791,7 @@ class AIController:
                     log_input=skill_run.input_payload,
                     prompt=prompt_bundle,
                     record_on=db,
+                    check_question=False,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
@@ -1162,8 +1188,12 @@ class AIController:
         tool_call_id: str | None = None,
         commit: bool = True,
         contract_context: ContractAIContext | None = None,
+        guardrails_handled: bool = False,
     ) -> BaseModel:
-        """``contract_context`` is for text that is not a stored contract (a drafting template
+        """``guardrails_handled``: the caller has already checked the typed question and the answer (an assistant
+        tool inside a chat turn that is guarded as a whole), so the gateway must not check them again.
+
+        ``contract_context`` is for text that is not a stored contract (a drafting template
         being checked, ai.context.text_only_context): the skill reads that text instead of
         looking a contract up. Left out, the context comes from the payload's contract_id."""
         spec = skill_registry.get(skill_name)
@@ -1266,11 +1296,15 @@ class AIController:
                     assistant_run_id=assistant_run_id,
                     tool_call_id=tool_call_id,
                     skill_run_id=skill_run.id,
+                    guardrails_handled=guardrails_handled or tool_call_id is not None,
                 ),
                 user_prompt=built_prompt.user_prompt,
                 log_input=skill_run.input_payload,  # already redacted
                 prompt=prompt_bundle,
                 record_on=db,
+                # Guardrails at the LLM level: the gateway checks the typed question before the call and the
+                # skill's reply after it (skills that are a tool of the assistant or a job are exempt there).
+                user_text_message=str(input_payload.get(spec.user_text_key) or "") if spec.user_text_key else None,
             )
             validated = result.data
             validation_status = self._validate_and_store_citations(

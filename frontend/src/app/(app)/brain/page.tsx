@@ -35,11 +35,14 @@ export default function BrainPage() {
   const [findBusy, setFindBusy] = useState(false);
   const [result, setResult] = useState<BrainQuery | null>(null);
   const [sources, setSources] = useState<BrainSearchResponse | null>(null);
+  // Why the last question got no answer (e.g. a guardrail refusal). A toast alone vanishes in a few
+  // seconds and the results area has already been cleared, so the page would look like nothing happened.
+  const [refused, setRefused] = useState<string | null>(null);
 
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list });
   const { data: recent, isLoading: recentLoading, error: recentError } = useQuery({ queryKey: ["brain-queries"], queryFn: () => brainApi.queries({ limit: 25 }) });
 
-  const idle = !busy && !findBusy && !result && !sources;
+  const idle = !busy && !findBusy && !result && !sources && !refused;
   const contractsCount = contracts?.length ?? 0;
   const weekAgo = Date.now() - 7 * 86_400_000;
   const askedThisWeek = (recent ?? []).filter((q) => new Date(q.created_at).getTime() >= weekAgo).length;
@@ -49,18 +52,18 @@ export default function BrainPage() {
     if (text.length < 3) return;
     if (q) setQuestion(q);
     if (scope === "contract" && !contractId) return notify("Select a contract for contract scope", "error");
-    setBusy(true); setSources(null); setResult(null);
+    setBusy(true); setSources(null); setResult(null); setRefused(null);
     try {
       const res = await brainApi.ask({ question: text, query_scope: scope, contract_id: scope === "contract" ? contractId : undefined });
       setResult(res);
-    } catch (e) { notify(e instanceof Error ? e.message : "Query failed", "error"); }
+    } catch (e) { setRefused(e instanceof Error ? e.message : "Query failed"); }
     finally { setBusy(false); }
   }
 
   async function find() {
     const text = question.trim();
     if (text.length < 2) return;
-    setFindBusy(true); setResult(null); setSources(null);
+    setFindBusy(true); setResult(null); setSources(null); setRefused(null);
     try { setSources(await brainApi.search(text)); }
     catch (e) { notify(e instanceof Error ? e.message : "Search failed", "error"); }
     finally { setFindBusy(false); }
@@ -123,6 +126,7 @@ export default function BrainPage() {
             <div className="colmain">
               {busy && <div className="loading">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}Reasoning across your contracts…</div>}
               {findBusy && <div className="loading">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}Searching the contract graph…</div>}
+              {refused && !busy && <div className="refused" role="alert">{svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>')}<div><b>No answer</b><p>{refused}</p></div></div>}
               {result && !busy && <AnswerCard query={result} />}
               {sources && !findBusy && <SourcesPanel res={sources} />}
               {idle && (
@@ -298,7 +302,7 @@ const BRN_CSS = `
 .brn .work{display:grid;grid-template-columns:1fr 320px;gap:20px;margin-top:18px;align-items:start}
 @media(max-width:960px){.brn .work{grid-template-columns:1fr}}
 .brn .colmain{min-width:0}
-.brn .loading{display:flex;align-items:center;gap:9px;padding:22px 4px;color:var(--ink-2);font-size:12.5px} .brn .loading .ic{width:16px;height:16px;color:var(--accent);animation:brnspin 1s linear infinite}
+.brn .refused{display:flex;align-items:flex-start;gap:11px;border:1px solid var(--border-strong);border-radius:13px;background:var(--inset);padding:16px 18px;color:var(--ink-2);font-size:13px} .brn .refused .ic{width:18px;height:18px;flex:none;margin-top:1px;color:var(--accent)} .brn .refused b{display:block;color:var(--ink);margin-bottom:3px} .brn .refused p{margin:0;line-height:1.5} .brn .loading{display:flex;align-items:center;gap:9px;padding:22px 4px;color:var(--ink-2);font-size:12.5px} .brn .loading .ic{width:16px;height:16px;color:var(--accent);animation:brnspin 1s linear infinite}
 @keyframes brnspin{to{transform:rotate(360deg)}}
 .brn .idlemain{border:1px dashed var(--border-strong);border-radius:13px;background:var(--inset);padding:44px 28px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
 .brn .idleic{width:46px;height:46px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin-bottom:8px} .brn .idleic .ic{width:23px;height:23px}

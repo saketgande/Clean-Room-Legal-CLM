@@ -70,6 +70,10 @@ class AIFeature:
     # None = use the prompt bundle's model (an admin's prompt-table override,
     # else settings.claude_model).
     model: str | None = None
+    # Guardrails: a feature that answers a typed question names the input holding it and the output
+    # field holding its prose reply (copied from the skill's SkillSpec). The gateway checks both.
+    user_text_key: str | None = None
+    answer_key: str | None = None
 
 
 # Cost-page wording, keyed by feature key: (label, category). The first block
@@ -204,6 +208,8 @@ def build_feature_registry() -> FeatureRegistry:
                 temperature=spec.temperature,
                 tool_name=spec.return_tool_name,
                 output_model=spec.output_model,
+                user_text_key=spec.user_text_key,
+                answer_key=spec.answer_key,
             )
         )
     for agent in STANDALONE_AGENTS:

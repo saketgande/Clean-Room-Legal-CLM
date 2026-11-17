@@ -399,8 +399,11 @@ async def test_stream_passes_deltas_through_and_records_the_round():
     ])
     events = [e async for e in AIGateway(provider=provider).stream(
         db, "assistant_streaming", ctx=CTX, messages=[], tools=[], system_context="Session: contract X",
+        user_text_message="Hi",
     )]
-    assert [e["type"] for e in events] == ["text_delta", "text_delta", "final"]
+    # The round's text is held back for the output guardrails, then released as one piece.
+    assert [e["type"] for e in events] == ["text_delta", "final"]
+    assert events[0]["text"] == "Hello there"
     assert events[-1]["call_id"] == db.rows[0].id
     assert db.rows[0].validated_output["text"] == "Hello there"
     assert provider.calls[0][1]["system_prompt"] == SHARED_LEGAL_SYSTEM_PROMPT + "\n\nSession: contract X"
@@ -410,7 +413,9 @@ async def test_a_stream_that_breaks_is_recorded_as_failed():
     db = FakeSession()
     provider = FakeProvider(stream_events=[{"type": "text_delta", "text": "Hel"}, ConnectionError("reset")])
     with pytest.raises(ConnectionError):
-        async for _ in AIGateway(provider=provider).stream(db, "assistant_streaming", ctx=CTX, messages=[], tools=[]):
+        async for _ in AIGateway(provider=provider).stream(
+            db, "assistant_streaming", ctx=CTX, messages=[], tools=[], user_text_message="Hi"
+        ):
             pass
     assert db.rows[0].status == "failed" and db.rows[0].error_class == "ConnectionError"
 

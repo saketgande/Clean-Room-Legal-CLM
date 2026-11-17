@@ -2373,6 +2373,7 @@ class ToolRuntime:
             resource_id=contract_id if payload.query_scope == "contract" else None,
             session_id=session_id,
             commit=False,
+            guardrails_handled=True,  # the assistant checked this chat turn's question and answer
         )
         answer = raw if isinstance(raw, BrainAnswerOutput) else BrainAnswerOutput.model_validate(raw)
         grounded = ground_answer(answer, source_text)

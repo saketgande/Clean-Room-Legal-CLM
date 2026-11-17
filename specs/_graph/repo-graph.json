@@ -6665,7 +6665,7 @@
   "metadata": {
     "counts": {
       "celery_task": 5,
-      "domain_backend": 39,
+      "domain_backend": 38,
       "domain_frontend": 25,
       "edges_total": 1184,
       "endpoint": 372,
@@ -6679,8 +6679,8 @@
       "ts_interface": 323,
       "ui_primitive": 29
     },
-    "generated_at": "2026-11-04T13:56:18Z",
-    "git_head": "2ecd03ba6e2cd8935bf374ecff6d203b9b3d05e6",
+    "generated_at": "2026-11-16T06:55:24Z",
+    "git_head": "24b8062a67ab994df96629a8bc1db720e432e76a",
     "warnings": [
       "59 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6694,7 +6694,6 @@
       "no frontend Api group matched for backend domain 'analytics' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'docstudio' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'documents' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6929,16 +6928,6 @@
         "backend-dev"
       ],
       "path": "backend/app/debug",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
-      "id": "domain:backend:docstudio",
-      "name": "docstudio",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/docstudio",
       "type": "domain_backend"
     },
     {

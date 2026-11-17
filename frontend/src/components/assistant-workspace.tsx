@@ -900,6 +900,9 @@ export function AssistantWorkspace() {
       setStreaming(false);
       setStopping(false);
       const sid = sessRef.current;
+      // A guardrail refusal ends the stream before any run exists, so the server saved neither the
+      // question nor the refusal: reloading would wipe them from the screen.
+      if (data.assistant_run_id == null && !runRef.current) return;
       if (sid)
         void syncFromServer(sid).then((msgs) => {
           if (msgs) void restoreSessionState(sid, msgs, { follow: false });

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,6 +46,12 @@ from sqlalchemy.orm import Session
 from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
 from app.ai.gateway.features import AIFeature, FeatureRegistry, PromptLayout, feature_registry
 from app.ai.gateway.ledger import AICallContext, record_call
+from app.ai.guardrail_service import (
+    GuardrailBlocked,
+    enforce_input_guardrails,
+    enforce_output_guardrails,
+    release_answer_text,
+)
 from app.ai.outcomes import Outcome, failure_from_exception, ledger_text
 from app.ai.prompt_versions import PromptBundle, get_active_prompt_bundle
 from app.core.config import settings
@@ -105,6 +112,23 @@ def _clamp(max_tokens: int) -> int:
 
 def _text_of(response: ClaudeProviderResponse) -> str:
     return "".join(b.get("text", "") for b in response.content_blocks if b.get("type") == "text")
+
+
+class _Trace:
+    """One log line per step of a call's path through the gateway, tied together by a short call id, so the logs
+    show: typed text -> guardrails -> Claude -> guardrails -> response, for every Claude call.
+
+      step 1  the call arrives            step 4  Claude responded (or failed)
+      step 2  input guardrails            step 5  output guardrails
+      step 3  Claude is called            step 6  the response is handed back
+    """
+
+    def __init__(self, feature_key: str) -> None:
+        self.id = uuid.uuid4().hex[:8]
+        self.feature = feature_key
+
+    def __call__(self, step: int, message: str) -> None:
+        logger.info("AI gateway [%s] feature=%s | step %d: %s", self.id, self.feature, step, message)
 
 
 class AIGateway:
@@ -280,21 +304,39 @@ class AIGateway:
         return input_schema
 
     # -- the call itself (steps 4-5), wrapped ----------------------------
-    async def _call_async(self, db, plan, ctx, log_input, make_coro: Callable[[], Awaitable[ClaudeProviderResponse]]):
+    async def _call_async(
+        self, db, plan, ctx, log_input, make_coro: Callable[[], Awaitable[ClaudeProviderResponse]], trace=None
+    ):
         started = time.perf_counter()
+        if trace:
+            trace(3, "Claude is called")
         try:
-            return await make_coro()
+            response = await make_coro()
         except Exception as exc:
+            if trace:
+                trace(4, f"Claude call FAILED ({type(exc).__name__})")
             self._record_failure(db, plan, ctx, log_input, exc, started)
             raise
+        if trace:
+            trace(4, "Claude responded")
+        return response
 
-    def _call_sync(self, db, plan, ctx, log_input, make_coro: Callable[[], Awaitable[ClaudeProviderResponse]]):
+    def _call_sync(
+        self, db, plan, ctx, log_input, make_coro: Callable[[], Awaitable[ClaudeProviderResponse]], trace=None
+    ):
         started = time.perf_counter()
+        if trace:
+            trace(3, "Claude is called")
         try:
-            return run_coro_blocking(make_coro)
+            response = run_coro_blocking(make_coro)
         except Exception as exc:
+            if trace:
+                trace(4, f"Claude call FAILED ({type(exc).__name__})")
             self._record_failure(db, plan, ctx, log_input, exc, started)
             raise
+        if trace:
+            trace(4, "Claude responded")
+        return response
 
     # -- public API ------------------------------------------------------
     def _structured_coro(self, plan: _Plan, ctx: AICallContext, user_prompt: str, schema: dict):
@@ -304,26 +346,140 @@ class AIGateway:
             max_tokens=plan.max_tokens, temperature=plan.feature.temperature, model=plan.model,
         )
 
+    @staticmethod
+    def _guards_user_text(feature: AIFeature, ctx: AICallContext, user_text_message: str | None = None) -> bool:
+        """A call is guarded when it carries a typed message (``user_text_message``, whatever the feature or its
+        field is called) or its feature declares one, unless the caller has already handled the guardrails
+        (an assistant tool) or it is a background job (no one typed anything)."""
+        typed = feature.user_text_key is not None or user_text_message is not None
+        return typed and not (ctx.guardrails_handled or ctx.job_id)
+
+    @staticmethod
+    def _skip_reason(feature: AIFeature, ctx: AICallContext, user_text_message: str | None = None) -> str | None:
+        """Why this call is not guarded; None when it is (it answers a typed question)."""
+        if feature.user_text_key is None and user_text_message is None:
+            return "no typed question: the input is a document or a record"
+        if ctx.guardrails_handled:
+            return "already checked by the chat turn it belongs to (an assistant tool)"
+        if ctx.job_id:
+            return "a background job: no one typed anything"
+        return None
+
+    async def _traced_question(
+        self, trace: _Trace, db: Session, feature: AIFeature, ctx: AICallContext, user_text_message: str | None,
+        skip: str | None,
+    ) -> None:
+        """Step 2: the input guardrails, with the outcome logged."""
+        if skip:
+            trace(2, f"input guardrails SKIPPED ({skip})")
+            return
+        try:
+            await self._guard_question(db, feature, ctx, user_text_message)
+        except GuardrailBlocked:
+            trace(2, "input guardrails BLOCKED the typed question: Claude is NOT called")
+            raise
+        trace(2, "input guardrails PASSED the typed question")
+
+    async def _traced_answer(
+        self, trace: _Trace, db: Session, feature: AIFeature, ctx: AICallContext, user_text_message: str | None,
+        data: Any, skip: str | None,
+    ) -> None:
+        """Step 5: the output guardrails, with the outcome logged."""
+        if skip or (feature.answer_key is None and not isinstance(data, str)):
+            trace(5, f"output guardrails SKIPPED ({skip or 'this feature returns no prose reply'})")
+            return
+        try:
+            await self._guard_answer(db, feature, ctx, user_text_message, data)
+        except GuardrailBlocked:
+            trace(5, "output guardrails BLOCKED Claude's answer: it is withheld")
+            raise
+        trace(5, "output guardrails PASSED Claude's answer")
+
+    @staticmethod
+    def _sync_trace_without_guardrails(trace: _Trace, feature: AIFeature, ctx: AICallContext) -> None:
+        """The synchronous methods have no guardrail step: a feature that answers a typed question must not use them."""
+        skip = AIGateway._skip_reason(feature, ctx)
+        if skip is None:
+            raise AIGatewayError(
+                f"{feature.key} answers a typed question: call it through an async gateway method so the "
+                "guardrails can check it", feature_key=feature.key, call_id=None,
+            )
+        trace(2, f"input guardrails SKIPPED ({skip})")
+
+    async def _guard_question(self, db: Session, feature: AIFeature, ctx: AICallContext, user_text_message: str | None) -> None:
+        """Input guardrails on the typed question, before the model is called. Raises GuardrailBlocked."""
+        if not self._guards_user_text(feature, ctx, user_text_message):
+            return
+        if user_text_message is None:
+            # Loud, not silent: a caller that forgets to hand over the question would skip the guardrail.
+            raise AIGatewayError(
+                f"{feature.key} answers a typed question: pass user_text_message= so the guardrails can check it",
+                feature_key=feature.key, call_id=None,
+            )
+        await enforce_input_guardrails(
+            db, text=user_text_message, org_id=ctx.org_id, actor_user_id=ctx.user_id, request_id=ctx.request_id,
+            resource_type=ctx.resource[0] if ctx.resource else feature.key,
+            resource_id=ctx.resource[1] if ctx.resource else None,
+        )
+
+    async def _guard_answer(
+        self, db: Session, feature: AIFeature, ctx: AICallContext, user_text_message: str | None, data: Any
+    ) -> None:
+        """Output guardrails on the prose reply the feature declares. Raises GuardrailBlocked."""
+        if not self._guards_user_text(feature, ctx, user_text_message):
+            return
+        if feature.answer_key is not None:
+            answer = str(getattr(data, feature.answer_key, "") or "")
+        elif isinstance(data, str):
+            answer = data  # a plain-text feature: the reply is the text itself
+        else:
+            return
+        await enforce_output_guardrails(
+            db, user_text=user_text_message or "", answer=answer,
+            org_id=ctx.org_id, actor_user_id=ctx.user_id, request_id=ctx.request_id,
+            resource_type=ctx.resource[0] if ctx.resource else feature.key,
+            resource_id=ctx.resource[1] if ctx.resource else None,
+        )
+
     async def structured(
         self, db: Session, feature_key: str, *, ctx: AICallContext, user_prompt: str,
         input_schema: dict | None = None, log_input: dict | None = None, prompt: PromptBundle | None = None,
-        record_on: Session | None = None,
+        record_on: Session | None = None, user_text_message: str | None = None,
     ) -> AIResult:
+        """``user_text_message`` is the question the person typed, for a feature that answers one (see AIFeature);
+        the guardrails check it before the call and the feature's reply after it."""
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt, record_on=record_on)
         schema = self._require_structured(plan, input_schema)
+        skip = self._skip_reason(plan.feature, ctx, user_text_message)
+        trace(1, "call received")
+        await self._traced_question(trace, db, plan.feature, ctx, user_text_message, skip)
         log_input = log_input or {}
-        response = await self._call_async(db, plan, ctx, log_input, self._structured_coro(plan, ctx, user_prompt, schema))
-        return self._finish_structured(db, plan, ctx, log_input, response)
+        response = await self._call_async(
+            db, plan, ctx, log_input, self._structured_coro(plan, ctx, user_prompt, schema), trace
+        )
+        result = self._finish_structured(db, plan, ctx, log_input, response)
+        await self._traced_answer(trace, db, plan.feature, ctx, user_text_message, result.data, skip)
+        trace(6, "response returned to the caller")
+        return result
 
     def structured_sync(
         self, db: Session, feature_key: str, *, ctx: AICallContext, user_prompt: str,
         input_schema: dict | None = None, log_input: dict | None = None, prompt: PromptBundle | None = None,
     ) -> AIResult:
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt)
         schema = self._require_structured(plan, input_schema)
+        trace(1, "call received")
+        self._sync_trace_without_guardrails(trace, plan.feature, ctx)
         log_input = log_input or {}
-        response = self._call_sync(db, plan, ctx, log_input, self._structured_coro(plan, ctx, user_prompt, schema))
-        return self._finish_structured(db, plan, ctx, log_input, response)
+        response = self._call_sync(
+            db, plan, ctx, log_input, self._structured_coro(plan, ctx, user_prompt, schema), trace
+        )
+        result = self._finish_structured(db, plan, ctx, log_input, response)
+        trace(5, "output guardrails SKIPPED (no typed question: the input is a document or a record)")
+        trace(6, "response returned to the caller")
+        return result
 
     def _vision_coro(self, plan, ctx, user_prompt, image_bytes, media_type, schema):
         return lambda: self.provider.complete_vision_structured(
@@ -337,14 +493,23 @@ class AIGateway:
         self, db: Session, feature_key: str, *, ctx: AICallContext, user_prompt: str,
         image_bytes: bytes, image_media_type: str,
         input_schema: dict | None = None, log_input: dict | None = None, prompt: PromptBundle | None = None,
+        user_text_message: str | None = None,
     ) -> AIResult:
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt)
         schema = self._require_structured(plan, input_schema)
+        skip = self._skip_reason(plan.feature, ctx, user_text_message)
+        trace(1, "call received")
+        await self._traced_question(trace, db, plan.feature, ctx, user_text_message, skip)
         log_input = log_input or {}
         response = await self._call_async(
-            db, plan, ctx, log_input, self._vision_coro(plan, ctx, user_prompt, image_bytes, image_media_type, schema)
+            db, plan, ctx, log_input, self._vision_coro(plan, ctx, user_prompt, image_bytes, image_media_type, schema),
+            trace,
         )
-        return self._finish_structured(db, plan, ctx, log_input, response)
+        result = self._finish_structured(db, plan, ctx, log_input, response)
+        await self._traced_answer(trace, db, plan.feature, ctx, user_text_message, result.data, skip)
+        trace(6, "response returned to the caller")
+        return result
 
     def _text_coro(self, plan, ctx, user_prompt):
         return lambda: self.provider.complete_text(
@@ -358,29 +523,42 @@ class AIGateway:
 
     async def text(
         self, db: Session, feature_key: str, *, ctx: AICallContext, user_prompt: str,
-        log_input: dict | None = None, prompt: PromptBundle | None = None,
+        log_input: dict | None = None, prompt: PromptBundle | None = None, user_text_message: str | None = None,
     ) -> AIResult:
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt)
         self._require_text(plan)
+        skip = self._skip_reason(plan.feature, ctx, user_text_message)
+        trace(1, "call received")
+        await self._traced_question(trace, db, plan.feature, ctx, user_text_message, skip)
         log_input = log_input or {}
-        response = await self._call_async(db, plan, ctx, log_input, self._text_coro(plan, ctx, user_prompt))
-        return self._finish_text(db, plan, ctx, log_input, response)
+        response = await self._call_async(db, plan, ctx, log_input, self._text_coro(plan, ctx, user_prompt), trace)
+        result = self._finish_text(db, plan, ctx, log_input, response)
+        await self._traced_answer(trace, db, plan.feature, ctx, user_text_message, result.data, skip)
+        trace(6, "response returned to the caller")
+        return result
 
     def text_sync(
         self, db: Session, feature_key: str, *, ctx: AICallContext, user_prompt: str,
         log_input: dict | None = None, prompt: PromptBundle | None = None,
     ) -> AIResult:
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt)
         self._require_text(plan)
+        trace(1, "call received")
+        self._sync_trace_without_guardrails(trace, plan.feature, ctx)
         log_input = log_input or {}
-        response = self._call_sync(db, plan, ctx, log_input, self._text_coro(plan, ctx, user_prompt))
-        return self._finish_text(db, plan, ctx, log_input, response)
+        response = self._call_sync(db, plan, ctx, log_input, self._text_coro(plan, ctx, user_prompt), trace)
+        result = self._finish_text(db, plan, ctx, log_input, response)
+        trace(5, "output guardrails SKIPPED (no typed question: the input is a document or a record)")
+        trace(6, "response returned to the caller")
+        return result
 
     async def stream(
         self, db: Session, feature_key: str, *, ctx: AICallContext, messages: list[dict[str, Any]],
         tools: list[dict[str, Any]], system_context: str | None = None,
         log_input: dict | None = None, prompt: PromptBundle | None = None,
-        record_on: Session | None = None,
+        record_on: Session | None = None, user_text_message: str | None = None, check_question: bool = True,
     ) -> AsyncIterator[dict[str, Any]]:
         """One streamed model round (the assistant's tool loop stays with the
         caller). Yields the client's ``text_delta`` events as they arrive, then
@@ -388,11 +566,26 @@ class AIGateway:
         recorded when it ends, or as failed if the stream breaks.
 
         Used by the Ask Aegis tool loop (AIController.stream_assistant_run /
-        resume_assistant_run), one call per model round."""
+        resume_assistant_run), one call per model round.
+
+        Guardrails: for a feature that answers a typed question, ``user_text_message`` is checked before the first round
+        (``check_question``; later rounds of the same turn pass False) and each round's text is held back and
+        released only after the output guardrails have judged it; the rail's refusal replaces a blocked round.
+        Raises GuardrailBlocked before any model call when the question is refused."""
+        trace = _Trace(feature_key)
         plan = self._plan(db, feature_key, ctx, prompt=prompt, system_context=system_context, record_on=record_on)
+        skip = self._skip_reason(plan.feature, ctx, user_text_message)
+        guard = skip is None
+        trace(1, "streamed round received")
+        if guard and not check_question:
+            trace(2, "input guardrails not repeated (a later round of the same turn: the typed question was checked in round 1)")
+        else:
+            await self._traced_question(trace, db, plan.feature, ctx, user_text_message, skip)
         log_input = log_input or {}
         started = time.perf_counter()
         final: ClaudeProviderResponse | None = None
+        held: list[str] = []
+        trace(3, "Claude is called (streaming" + ("; its text is held back until the output guardrails have judged it)" if guard else ")"))
         try:
             async for event in self.provider.stream_with_tools(
                 org_id=ctx.org_id, system_prompt=plan.system_prompt, messages=messages, tools=tools,
@@ -400,11 +593,15 @@ class AIGateway:
             ):
                 if event.get("type") == "final":
                     final = event["response"]
+                elif guard and event.get("type") == "text_delta":
+                    held.append(str(event.get("text") or ""))
                 else:
                     yield event
         except Exception as exc:
+            trace(4, f"Claude stream FAILED ({type(exc).__name__}): nothing held back is shown")
             self._record_failure(db, plan, ctx, log_input, exc, started)
             raise
+        trace(4, "Claude responded")
         if final is None:
             exc = RuntimeError("stream ended without a final response")
             self._record_failure(db, plan, ctx, log_input, exc, started)
@@ -418,6 +615,18 @@ class AIGateway:
                 "tool_uses": [{"id": b.get("id"), "name": b.get("name")} for b in final.tool_use_blocks],
             },
         )
+        if guard and "".join(held):
+            released, allowed = await release_answer_text(
+                db, user_text=user_text_message or "", text="".join(held), org_id=ctx.org_id,
+                actor_user_id=ctx.user_id, request_id=ctx.request_id, resource_type="assistant_run",
+                resource_id=ctx.assistant_run_id,
+            )
+            trace(5, "output guardrails PASSED Claude's text" if allowed
+                  else "output guardrails BLOCKED Claude's text: the refusal is shown instead")
+            yield {"type": "text_delta", "text": released}
+        else:
+            trace(5, f"output guardrails SKIPPED ({skip or 'this round produced no text'})")
+        trace(6, "round handed back to the caller")
         yield {"type": "final", "response": final, "call_id": row.id}
 
 

@@ -64,6 +64,24 @@ from fastembed.rerank.cross_encoder import TextCrossEncoder; \
 TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); \
 TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
+# Same for the NeMo toxicity rail's model (config.yml: hf_classifier.toxicity); the sensitive-data
+# rail's spaCy model ships in requirements.lock. Downloaded once here, at build time; offline mode
+# and NeMo's usage-stats opt-out are switched on afterwards, so a running container makes no outside
+# call for the ML guardrails (no model download, no "is there a newer version" check, no telemetry).
+# Presidio's email detector (sensitive-data rail) uses tldextract, which downloads the public-suffix
+# list on first use; prime its cache here so that never happens at run time either.
+ENV HF_HOME=/opt/hf-models \
+    TLDEXTRACT_CACHE=/opt/tldextract-cache
+RUN mkdir -p /opt/hf-models /opt/tldextract-cache \
+ && python -c "\
+from transformers import pipeline; \
+import tldextract; \
+pipeline('text-classification', model='unitary/toxic-bert'); \
+tldextract.extract('mail.example.co.uk')"
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    NEMO_GUARDRAILS_NO_USAGE_STATS=1
+
 # App source. The package is importable via PYTHONPATH=/app (no editable
 # install needed); alembic/celery/uvicorn run from this working directory.
 COPY . .
@@ -73,7 +91,7 @@ COPY . .
 # on first mount, so the non-root process can write contract files.
 RUN useradd --system --create-home --uid 10001 aegis \
  && mkdir -p /data/contracts \
- && chown -R aegis:aegis /app /data /opt/models
+ && chown -R aegis:aegis /app /data /opt/models /opt/hf-models /opt/tldextract-cache
 USER aegis
 
 EXPOSE 8000

@@ -87,7 +87,14 @@ export default function BuildPlaybookPage() {
     } catch (e) {
       setMessages([
         ...nextMsgs,
-        { role: "assistant", content: "Sorry — that request failed. Please try again." },
+        {
+          role: "assistant",
+          // A guardrail refusal says why; anything else is a plain failure.
+          content:
+            e instanceof Error && /NeMo Guardrails/.test(e.message)
+              ? e.message
+              : "Sorry — that request failed. Please try again.",
+        },
       ]);
       notify(e instanceof Error ? e.message : "Chat failed", "error");
     } finally {

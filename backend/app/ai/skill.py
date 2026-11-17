@@ -25,6 +25,11 @@ class SkillSpec:
     # Append the contract's full text to the prompt. Off for a skill whose input
     # already carries exactly what it needs (clause_labeling sends segments).
     include_contract_text: bool = True
+    # Guardrails at the LLM level: a skill that answers a typed question names the input_payload key
+    # holding the typed text (checked before the model is called) and the output field holding its
+    # prose reply (checked before it is returned). See AIController.run_structured_skill.
+    user_text_key: str | None = None
+    answer_key: str | None = None
 
     @property
     def return_tool_name(self) -> str:

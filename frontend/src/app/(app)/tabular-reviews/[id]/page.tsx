@@ -26,6 +26,7 @@ import {
   CenterSpinner,
   ErrorState,
   Input,
+  MessageBar,
   Modal,
   NotFound,
   Spinner,
@@ -658,6 +659,8 @@ function ChatPanel({ reviewId }: { reviewId: string }) {
   const { notify } = useToast();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  // Why the last message got no answer (e.g. a guardrail refusal); a toast alone is gone in seconds.
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const { data: messages, isLoading } = useQuery({
     queryKey: ["tabular", reviewId, "chat"],
@@ -667,12 +670,13 @@ function ChatPanel({ reviewId }: { reviewId: string }) {
   async function send() {
     if (message.trim().length < 2) return;
     setBusy(true);
+    setRefusal(null);
     try {
       await tabularApi.sendChat(reviewId, message.trim());
       setMessage("");
       qc.invalidateQueries({ queryKey: ["tabular", reviewId, "chat"] });
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Message failed", "error");
+      setRefusal(e instanceof Error ? e.message : "Message failed");
     } finally {
       setBusy(false);
     }
@@ -744,6 +748,8 @@ function ChatPanel({ reviewId }: { reviewId: string }) {
             ))}
           </div>
         )}
+
+        {refusal && <MessageBar intent="warning">{refusal}</MessageBar>}
 
         <div className="flex gap-2 border-t border-slate-100 pt-4">
           <Input
