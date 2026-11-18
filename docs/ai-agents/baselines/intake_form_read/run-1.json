@@ -1,0 +1,66 @@
+{
+  "feature": "intake_form_read",
+  "note": "model_output is the tool input the model returned (ledger validated_output), before the code filters it; stored_read is what ai_triage.read keeps.",
+  "request": {
+    "ref": "REQ-4031",
+    "type_label": "New agreement · NDA",
+    "priority": "Medium",
+    "department": "R&D",
+    "description": "Mutual NDA to share formulation data for a joint study.",
+    "field_values": {
+      "paper": "Our template",
+      "entity": "Aegis Test Pvt Ltd",
+      "purpose": "Mutual NDA to share formulation data for a joint study.",
+      "nda_kind": "Mutual",
+      "nda_term": "2 years",
+      "entity_id": "80d72ca4-f52b-48ba-ae33-65427ee90b80",
+      "department": "R&D",
+      "start_date": "2026-11-20",
+      "counterparty": "Zenith Pharma Ltd",
+      "request_form": "new_agreement",
+      "governing_law": "India",
+      "personal_data": "No",
+      "agreement_type": "NDA",
+      "cp_signer_name": "Dr. Meera Rao",
+      "counterparty_id": "504b455c-65bd-491b-adc8-ebb3d9396282",
+      "cp_signer_email": "meera.rao@zenith-pharma.example"
+    }
+  },
+  "ledger": {
+    "id": "89387d4a-2579-4712-be71-6668bd015045",
+    "prompt_key": "intake_form_read",
+    "prompt_version": "1.0.0",
+    "model": "claude-sonnet-4-6",
+    "status": "succeeded",
+    "stop_reason": "tool_use",
+    "prompt_tokens": 1505,
+    "completion_tokens": 152,
+    "total_tokens": 1657,
+    "latency_ms": 8883.474302999275,
+    "created_at": "2026-11-05T12:00:42.616957+00:00"
+  },
+  "model_output": {
+    "summary": "R&D team wants a mutual NDA with Zenith Pharma Ltd to enable sharing of formulation data in connection with a joint study, using Aegis Test Pvt Ltd's own template, starting 20 November 2026 for a 2-year term.",
+    "mismatches": [],
+    "bespoke_asks": [],
+    "negotiation_points": []
+  },
+  "stored_read": {
+    "summary": "R&D team wants a mutual NDA with Zenith Pharma Ltd to enable sharing of formulation data in connection with a joint study, using Aegis Test Pvt Ltd's own template, starting 20 November 2026 for a 2-year term.",
+    "mismatches": [],
+    "bespoke_asks": [],
+    "negotiation_points": []
+  },
+  "stored_ai_triage_keys": [
+    "agent_id",
+    "category",
+    "complexity",
+    "confidence",
+    "flow_suggestion",
+    "needs_info",
+    "read",
+    "risk_flag",
+    "source",
+    "understanding"
+  ]
+}

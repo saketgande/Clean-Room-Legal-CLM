@@ -19,24 +19,6 @@ from app.core.database import utcnow
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "decision": {
-            "type": "string",
-            "enum": ["renew", "renegotiate", "terminate"],
-            "description": "The single recommended action.",
-        },
-        "rationale": {
-            "type": "string",
-            "description": "One or two sentences, specific to the facts given — no boilerplate.",
-        },
-        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-    },
-    "required": ["decision", "rationale", "confidence"],
-}
-
-
 def _cached_band(contract) -> str | None:
     """The playbook rule's cached band, or None. A summary without playbook_run_ids was
     written by the deleted AI risk score, which the rule replaced: it is not a band now."""
@@ -152,7 +134,6 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract, claude_cli
             "renewal_recommendation",
             ctx=AICallContext(org_id=org_id, resource=("renewal_event", renewal.id)),
             user_prompt=user,
-            input_schema=_SCHEMA,
             log_input={"renewal_id": renewal.id, "contract_id": contract.id, "facts": len(facts)},
         )
     except Exception:
@@ -160,7 +141,7 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract, claude_cli
             "renewal recommendation failed for %s — using heuristic", renewal.id, exc_info=True
         )
         return _fallback(renewal, contract)
-    data = dict(result.data)
+    data = result.data.model_dump(mode="json")
     if "decision" not in data:
         return _fallback(renewal, contract)
     data["generated"] = True

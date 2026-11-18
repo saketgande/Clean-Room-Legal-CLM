@@ -54,25 +54,6 @@ PINNED = frozenset({"document", "layout"})
 OPENING_CHARS = 100
 CLOSING_CHARS = 40
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "answers": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "seq": {"type": "integer"},
-                    "parent": {"type": ["integer", "null"]},
-                },
-                "required": ["seq", "parent"],
-            },
-        }
-    },
-    "required": ["answers"],
-}
-
-
 @dataclass(frozen=True)
 class Question:
     seq: int
@@ -345,7 +326,6 @@ class GatewayHierarchyJudge:
             FEATURE_KEY,
             ctx=AICallContext(org_id=self._org_id, resource=self._resource),
             user_prompt=f"OUTLINE\n{outline}\n\nQUESTIONS\n{render_questions(questions)}",
-            input_schema=_SCHEMA,
             log_input={"questions": len(questions)},
         )
-        return rows_from(result.data)
+        return rows_from(result.data.model_dump(mode="json"))

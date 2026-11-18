@@ -1,0 +1,39 @@
+{
+  "feature": "litigation_intake_agent",
+  "run": "after output model + trimmed prompt (1.1.0)",
+  "request": "REQ-4007 (via the app's re-suggest action)",
+  "ledger": {
+    "prompt_version": "1.1.0",
+    "prompt_tokens": 3801,
+    "completion_tokens": 467,
+    "latency_ms": 10550,
+    "status": "succeeded",
+    "stop_reason": "tool_use"
+  },
+  "before": {
+    "prompt_tokens": 3801,
+    "completion_tokens": 623
+  },
+  "model_output": {
+    "matter_type": "Litigation Hold",
+    "legal_hold_required": true,
+    "outside_counsel_likely": true,
+    "settlement_posture": "unknown",
+    "summary": "A litigation hold has been flagged as critical in connection with a dispute involving Acme. All documents must be preserved immediately. A deadline is described as approaching, but no specific date or triggering period has been provided in the request.",
+    "assessment_confidence": 0.42,
+    "flow_confidence": 0.62,
+    "key_parties": [
+      "Our organization (hold issuer)",
+      "Acme (counterparty in dispute)"
+    ],
+    "statutory_deadlines": [
+      {
+        "what": "Document preservation / litigation hold deadline",
+        "date": "approaching (no specific date stated)",
+        "due_date": null,
+        "source": "deadline approaching"
+      }
+    ],
+    "flow_name": "Legal Notice Response"
+  }
+}

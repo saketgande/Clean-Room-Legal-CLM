@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "nice_class": {
+      "type": "string",
+      "description": "The single best-fit class number, 1-45, as a string."
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "One short, concrete sentence."
+    }
+  },
+  "required": [
+    "nice_class",
+    "reasoning"
+  ]
+}

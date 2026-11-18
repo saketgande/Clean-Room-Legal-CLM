@@ -1,0 +1,34 @@
+{
+  "feature": "email_triage_agent",
+  "kind": "agent",
+  "returned_by_app_function": {
+    "is_clm_related": true,
+    "category": "NDA",
+    "confidence": 0.95
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "email_triage_agent",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1266,
+      "completion_tokens": 75,
+      "total_tokens": 1341,
+      "latency_ms": 2125.279631000012,
+      "validated_output": {
+        "is_clm_related": true,
+        "category": "NDA",
+        "confidence": 0.95
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "is_clm_related": true,
+    "category": "NDA",
+    "confidence": 0.95
+  }
+}

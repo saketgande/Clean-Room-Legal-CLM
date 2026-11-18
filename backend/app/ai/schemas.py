@@ -23,18 +23,18 @@ class CitationValidationResult(BaseModel):
 
 
 class ContractMetadataOutput(BaseModel):
-    title: str | None = None
-    contract_type: str | None = None
-    counterparty_name: str | None = None
-    jurisdiction: str | None = None
-    risk_level: Literal["low", "medium", "high"] | None = None
-    value_amount: float | None = None
-    currency: str | None = Field(default=None, max_length=3)
-    effective_date: date | None = None
-    expiration_date: date | None = None
-    confidence: Literal["high", "medium", "low"] = "low"
-    citations: list[CitationInput] = Field(default_factory=list)
-    notes: str | None = None
+    title: str | None = Field(default=None, description="The contract's title as printed; null if none is stated.")
+    contract_type: str | None = Field(default=None, description="What kind of agreement it is (e.g. NDA, MSA), as stated.")
+    counterparty_name: str | None = Field(default=None, description="The other party's full legal name exactly as stated.")
+    jurisdiction: str | None = Field(default=None, description="Governing-law jurisdiction, standardized name; null if not stated.")
+    risk_level: Literal["low", "medium", "high"] | None = Field(default=None, description="Overall risk only if the text makes it plain; otherwise null.")
+    value_amount: float | None = Field(default=None, description="Total or annual contract value as a plain number, no currency symbol.")
+    currency: str | None = Field(default=None, max_length=3, description="ISO 4217 code of value_amount, e.g. USD.")
+    effective_date: date | None = Field(default=None, description="Effective date, YYYY-MM-DD; null if not explicitly stated.")
+    expiration_date: date | None = Field(default=None, description="Expiration or end date, YYYY-MM-DD; null if not explicitly stated.")
+    confidence: Literal["high", "medium", "low"] = Field(default="low", description="high: explicit language and clear citations; low: sparse or conflicting.")
+    citations: list[CitationInput] = Field(default_factory=list, description="At most one per filled field (8 at most): the shortest sentence that proves the value.")
+    notes: str | None = Field(default=None, description="Two sentences at most: why a field is null, conflicts, or a truncated document.")
 
     @field_validator("citations", mode="after")
     @classmethod
@@ -51,57 +51,57 @@ class ContractMetadataOutput(BaseModel):
 
 
 class ClauseOutput(BaseModel):
-    clause_type: str
-    heading: str | None = None
-    text: str = Field(min_length=1)
-    start_char: int | None = None
-    end_char: int | None = None
-    confidence: Literal["high", "medium", "low"] = "medium"
-    citations: list[CitationInput] = Field(default_factory=list)
+    clause_type: str = Field(description="Type of the clause, e.g. limitation_of_liability, governing_law.")
+    heading: str | None = Field(default=None, description="The clause's heading as printed, if it has one.")
+    text: str = Field(min_length=1, description="The clause's exact wording from the contract.")
+    start_char: int | None = Field(default=None, description="Offset where the text starts in the contract text.")
+    end_char: int | None = Field(default=None, description="Offset where the text ends in the contract text.")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium", description="How sure the type and boundaries are.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Quotes proving the clause is what you say.")
 
 
 class ClauseExtractionOutput(BaseModel):
-    clauses: list[ClauseOutput] = Field(default_factory=list)
-    extraction_notes: str | None = None
+    clauses: list[ClauseOutput] = Field(default_factory=list, description="Only the materially significant clauses found.")
+    extraction_notes: str | None = Field(default=None, description="Anything unusual, or a sign the text is partial.")
 
 
 class ClauseLabel(BaseModel):
     """One segment of the Documents reader's segmentation, named. The text and
     offsets come from the segment, never from the model (ai/clause_segments.py)."""
-    segment_id: str = Field(min_length=1)
-    clause_type: str = Field(min_length=1)
-    confidence: Literal["high", "medium", "low"] = "medium"
+    segment_id: str = Field(min_length=1, description="An id from the supplied list (S1, S2, ...); never invent one.")
+    clause_type: str = Field(min_length=1, description="The clause's type; a short snake_case name if none of the usual ones fits.")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium", description="high: type is plain from the excerpt; low: guessed from the heading alone.")
 
 
 class ClauseLabelingOutput(BaseModel):
-    labels: list[ClauseLabel] = Field(default_factory=list)
-    extraction_notes: str | None = None
+    labels: list[ClauseLabel] = Field(default_factory=list, description="One label per significant segment, each segment at most once.")
+    extraction_notes: str | None = Field(default=None, description="Anything unusual, at most three short sentences.")
 
 
 class ContractDocxSection(BaseModel):
-    heading: str
-    body: str
+    heading: str = Field(description="Section heading, in execution-ready order.")
+    body: str = Field(description="Substantive contract wording for the section.")
 
 
 class ContractDocxGenerationOutput(BaseModel):
-    title: str
-    sections: list[ContractDocxSection] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
-    citations: list[CitationInput] = Field(default_factory=list)
+    title: str = Field(description="Title of the document.")
+    sections: list[ContractDocxSection] = Field(default_factory=list, description="Every section in order, including schedules and signature blocks.")
+    assumptions: list[str] = Field(default_factory=list, description="Each real drafting judgment call or placeholder for the drafter; shown as a note, never printed in the contract.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Quotes from source material the draft relies on.")
 
 
 class ContractEditSuggestion(BaseModel):
-    edit_type: str
-    original_text: str | None = None
-    replacement_text: str | None = None
-    rationale: str
-    risk_level: Literal["low", "medium", "high"] = "medium"
-    citations: list[CitationInput] = Field(default_factory=list)
+    edit_type: str = Field(description="Kind of change, e.g. replace, insert, delete.")
+    original_text: str | None = Field(default=None, description="Text copied character-for-character from the contract that the edit changes; null for a pure insertion.")
+    replacement_text: str | None = Field(default=None, description="Final contract wording, never a blank or placeholder; empty for a deletion.")
+    rationale: str = Field(description="Why the change is made.")
+    risk_level: Literal["low", "medium", "high"] = Field(default="medium", description="Risk the edit addresses or introduces.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Verbatim contract quotes supporting the edit.")
 
 
 class ContractEditSuggestionsOutput(BaseModel):
-    edits: list[ContractEditSuggestion] = Field(default_factory=list)
-    summary: str | None = None
+    edits: list[ContractEditSuggestion] = Field(default_factory=list, description="Each proposed change; leave unrelated language alone.")
+    summary: str | None = Field(default=None, description="What was changed, plus anything unresolved or assumed.")
 
 
 def _model_must_answer_position(schema: dict[str, Any]) -> None:
@@ -161,10 +161,10 @@ def _list_from_json_text(value: Any) -> Any:
 class PlaybookDeviationOutput(BaseModel):
     model_config = ConfigDict(json_schema_extra=_model_must_answer_position)
 
-    rule_index: int | None = None
-    clause_type: str
-    severity: Literal["low", "medium", "high", "critical"] = "medium"
-    issue: str
+    rule_index: int | None = Field(default=None, description="The rule_index exactly as supplied.")
+    clause_type: str = Field(description="Clause type the rule covers.")
+    severity: Literal["low", "medium", "high", "critical"] = Field(default="medium", description="How serious the deviation is for the organization.")
+    issue: str = Field(description="One plain sentence: the business impact and whether senior-counsel or approval escalation is needed.")
     # Asked for after `issue`, once the model has worked the item through. The reviewer sometimes
     # lists a clause and, writing the issue, finds it meets the rule ("no deviation to flag"; "this
     # is an approval-tracking item"). Answering 'preferred' discards the item (``kept_deviations``)
@@ -180,66 +180,66 @@ class PlaybookDeviationOutput(BaseModel):
             "prohibited language, or lacks required wording."
         ),
     )
-    original_text: str | None = None
-    suggested_fix: str | None = None
-    approval_required: bool = False
-    citations: list[CitationInput] = Field(default_factory=list)
-    confidence: Literal["high", "medium", "low"] = "medium"
+    original_text: str | None = Field(default=None, description="The narrowest span copied character-for-character from the contract that captures the issue.")
+    suggested_fix: str | None = Field(default=None, description="Replacement or insertion wording ready to sit in the contract, not negotiation advice; empty if deletion is the fix.")
+    approval_required: bool = Field(default=False, description="True if a real deviation from this rule needs sign-off.")
+    citations: list[CitationInput] = Field(default_factory=list, description="The contract quote proving the deviation.")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium", description="How sure the deviation is real.")
 
     _citations_from_text = field_validator("citations", mode="before")(_list_from_json_text)
 
 
 class PlaybookReviewOutput(BaseModel):
-    deviations: list[PlaybookDeviationOutput] = Field(default_factory=list)
-    summary: str | None = None
-    citations: list[CitationInput] = Field(default_factory=list)
+    deviations: list[PlaybookDeviationOutput] = Field(default_factory=list, description="Material deviations only; empty if none.")
+    summary: str | None = Field(default=None, description="Short overall assessment of the contract against the playbook.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Quotes supporting the summary.")
 
     _lists_from_text = field_validator("deviations", "citations", mode="before")(_list_from_json_text)
 
 
 class PlaybookGenerationRule(BaseModel):
-    clause_type: str
-    rule_type: str = "standard_position"
-    preferred_position: str | None = None
-    fallback_position: str | None = None
-    prohibited_language: str | None = None
-    required_language: str | None = None
-    risk_level: Literal["low", "medium", "high", "critical"] | None = None
-    rationale: str | None = None
-    sample_clause: str | None = None
-    negotiation_guidance: str | None = None
-    approval_required: bool = False
+    clause_type: str = Field(description="Lowercase snake_case clause type.")
+    rule_type: str = Field(default="standard_position", description="Kind of rule, e.g. standard_position, fallback_position, prohibited_position, required_protection.")
+    preferred_position: str | None = Field(default=None, description="The position we want; null if the source does not establish one.")
+    fallback_position: str | None = Field(default=None, description="What we accept instead; meaningfully distinct from the preferred position.")
+    prohibited_language: str | None = Field(default=None, description="Wording that must not appear, concrete enough to test in a review.")
+    required_language: str | None = Field(default=None, description="Wording that must appear, concrete enough to test in a review.")
+    risk_level: Literal["low", "medium", "high", "critical"] | None = Field(default=None, description="Risk if the position is lost; null if it rests only on assumed market practice.")
+    rationale: str | None = Field(default=None, description="Why, grounded in the source.")
+    sample_clause: str | None = Field(default=None, description="Model wording for the clause, kept separate from source wording.")
+    negotiation_guidance: str | None = Field(default=None, description="How to negotiate it.")
+    approval_required: bool = Field(default=False, description="True only if the source states an approval requirement.")
 
 
 class PlaybookGenerationOutput(BaseModel):
-    suggested_name: str | None = None
-    rules: list[PlaybookGenerationRule] = Field(default_factory=list)
-    notes: str | None = None
+    suggested_name: str | None = Field(default=None, description="Concise playbook name; neutral if the role or contract type is uncertain.")
+    rules: list[PlaybookGenerationRule] = Field(default_factory=list, description="Source-supported, materially significant rules; empty if none can be established.")
+    notes: str | None = Field(default=None, description="Conflicts, gaps or limits in the source.")
 
 
 class PlaybookRecommendation(BaseModel):
-    clause_type: str
-    rule_id: str | None = None
-    change_summary: str
-    proposed_preferred_position: str | None = None
-    proposed_fallback_position: str | None = None
-    proposed_negotiation_guidance: str | None = None
-    rationale: str
+    clause_type: str = Field(description="Clause type of the rule to change.")
+    rule_id: str | None = Field(default=None, description="The rule's id as supplied.")
+    change_summary: str = Field(description="What should change, in one sentence.")
+    proposed_preferred_position: str | None = Field(default=None, description="New preferred position, if it changes.")
+    proposed_fallback_position: str | None = Field(default=None, description="New fallback position, if it changes.")
+    proposed_negotiation_guidance: str | None = Field(default=None, description="New negotiation guidance, if it changes.")
+    rationale: str = Field(description="Why, from how past deviations were decided.")
     # Does the change make the org MORE or LESS protected? Surfaced as a guardrail.
-    risk_direction: Literal["more_protected", "less_protected", "neutral"] = "neutral"
-    confidence: Literal["high", "medium", "low"] = "medium"
+    risk_direction: Literal["more_protected", "less_protected", "neutral"] = Field(default="neutral", description="Whether the change leaves the organization more or less protected.")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium", description="How well the evidence supports the change.")
 
 
 class PlaybookRecommendationsOutput(BaseModel):
-    recommendations: list[PlaybookRecommendation] = Field(default_factory=list)
-    summary: str | None = None
+    recommendations: list[PlaybookRecommendation] = Field(default_factory=list, description="A small number of well-evidenced recommendations; never presented as already adopted.")
+    summary: str | None = Field(default=None, description="Short overview of what the evidence shows.")
 
 
 class PlaybookChatBuildOutput(BaseModel):
-    reply: str
-    suggested_name: str | None = None
+    reply: str = Field(description="1-3 sentences saying what changed or answering the question.")
+    suggested_name: str | None = Field(default=None, description="Concise playbook name.")
     # The COMPLETE current draft after applying the user's request (replace, not delta).
-    rules: list[PlaybookGenerationRule] = Field(default_factory=list)
+    rules: list[PlaybookGenerationRule] = Field(default_factory=list, description="The COMPLETE rule set after applying the request, never a delta.")
 
 
 PeriodUnit = Literal["days", "business_days", "weeks", "months", "years"]
@@ -253,22 +253,22 @@ class ObligationTiming(BaseModel):
     returns a date: code counts the period from the anchor (app/core/deadlines.py)
     and shows the formula, so a wrong anchor or unit is visible, not baked in."""
 
-    kind: Literal["deadline", "ongoing", "condition"] = "condition"
-    period_number: int | None = Field(default=None, ge=0, le=MAX_PERIOD)
-    period_unit: PeriodUnit | None = None
-    direction: Literal["after", "before"] = "after"
+    kind: Literal["deadline", "ongoing", "condition"] = Field(default="condition", description="deadline: a stated time limit; ongoing: a continuing or recurring duty; condition: depends on an event.")
+    period_number: int | None = Field(default=None, ge=0, le=MAX_PERIOD, description="The number in the stated period, e.g. 30 for a 30-day limit.")
+    period_unit: PeriodUnit | None = Field(default=None, description="Unit of the stated period; keep business days distinct from days.")
+    direction: Literal["after", "before"] = Field(default="after", description="Whether the period runs after or before the anchor.")
     anchor: Literal[
         "effective_date", "expiration_date", "signature_date", "termination",
         "notice_received", "invoice_received", "request_received", "disclosure", "other",
     ] | None = None
-    anchor_text: str | None = None
+    anchor_text: str | None = Field(default=None, description="The contract's own words for what the period counts from.")
     # False when the period would come from law rather than this contract: such a
     # deadline is left for a person, never computed.
-    stated_in_text: bool = False
-    clear_days: bool = False
+    stated_in_text: bool = Field(default=False, description="True only if this contract itself states the period (not law).")
+    clear_days: bool = Field(default=False, description="True if the contract says clear days (excluding both end days).")
     # A calendar date the clause writes out as the deadline. Used only when its day
     # number and year are in the citation quote (core/deadlines.date_in_quote).
-    explicit_date: date | None = None
+    explicit_date: date | None = Field(default=None, description="A calendar date the clause writes out as the deadline, YYYY-MM-DD; never one you worked out.")
 
     # One off-list word from the model ("recurring", "hours") must not discard a whole
     # contract's obligations. A recurring duty has no single deadline, so it reads as
@@ -290,71 +290,71 @@ class ObligationOutput(BaseModel):
     # Bounded to the stored columns (obligation_type 160, responsible_party 255). An overlong value used to
     # fail the whole save at the INSERT; now the tool schema tells the model the limit and a breach fails
     # validation, which the job reports as an unusable answer.
-    obligation_type: str | None = Field(default=None, max_length=160)
-    description: str = Field(min_length=1)
-    responsible_party: str | None = Field(default=None, max_length=255)
-    timing: ObligationTiming = Field(default_factory=ObligationTiming)
+    obligation_type: str | None = Field(default=None, max_length=160, description="Short kind of duty, e.g. payment, notice, reporting.")
+    description: str = Field(min_length=1, description="The duty in concise plain language.")
+    responsible_party: str | None = Field(default=None, max_length=255, description="Who must do it, exactly as the contract names them; null if no clear owner.")
+    timing: ObligationTiming = Field(default_factory=ObligationTiming, description="When it falls due, as the contract words it.")
     recurrence: Literal[
         "none", "monthly", "quarterly", "semi_annually", "annually", "per_event"
     ] = "none"
-    recurrence_note: str | None = None
-    source_clause_type: str | None = None
-    confidence: Literal["high", "medium", "low"] = "medium"
-    citations: list[CitationInput] = Field(default_factory=list)
+    recurrence_note: str | None = Field(default=None, description="How the repeat works, in the contract's words.")
+    source_clause_type: str | None = Field(default=None, description="Type of the clause the duty comes from.")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium", description="How clearly the text imposes this duty.")
+    citations: list[CitationInput] = Field(default_factory=list, description="The exact quotation that proves the duty.")
 
 
 class ObligationExtractionOutput(BaseModel):
-    obligations: list[ObligationOutput] = Field(default_factory=list)
-    extraction_notes: str | None = None
+    obligations: list[ObligationOutput] = Field(default_factory=list, description="Every concrete duty the text imposes; empty if none.")
+    extraction_notes: str | None = Field(default=None, description="Why the list is empty, or a sign the text is partial.")
 
 
 class TermLength(BaseModel):
-    number: int = Field(ge=0, le=MAX_PERIOD)
-    unit: PeriodUnit
+    number: int = Field(ge=0, le=MAX_PERIOD, description="Length of the period.")
+    unit: PeriodUnit = Field(description="Unit of the period.")
 
 
 class InitialTerm(TermLength):
-    counted_from: Literal["effective_date", "signature_date", "other"] = "effective_date"
+    counted_from: Literal["effective_date", "signature_date", "other"] = Field(default="effective_date", description="What the initial term counts from.")
 
 
 class RenewalNoticeTerm(BaseModel):
     """One notice clause. A contract can have several (either party 90 days, the
     customer 60 days); code tracks the earliest deadline among them."""
 
-    kind: Literal["non_renewal", "termination_for_convenience"]
-    who: Literal["either", "us", "counterparty", "named"] = "either"
-    number: int | None = Field(default=None, ge=0, le=MAX_PERIOD)
-    unit: PeriodUnit | None = None
-    clear_days: bool = False
-    counted: Literal["before_end_of_term", "other"] = "before_end_of_term"
-    quote: str | None = None
+    kind: Literal["non_renewal", "termination_for_convenience"] = Field(description="Which notice this clause is.")
+    who: Literal["either", "us", "counterparty", "named"] = Field(default="either", description="Who may give the notice.")
+    number: int | None = Field(default=None, ge=0, le=MAX_PERIOD, description="Length of the notice period.")
+    unit: PeriodUnit | None = Field(default=None, description="Unit of the notice period.")
+    clear_days: bool = Field(default=False, description="True if the contract says clear days.")
+    counted: Literal["before_end_of_term", "other"] = Field(default="before_end_of_term", description="What the notice period is counted back from.")
+    quote: str | None = Field(default=None, description="The exact clause wording.")
 
 
 class RenewalExtractionOutput(BaseModel):
     """The term and renewal WORDING as typed facts. No AI-computed dates: the
     expiry, notice deadline and window are counted by code from these facts."""
 
-    term_kind: Literal["fixed", "evergreen", "unclear"] = "unclear"
+    term_kind: Literal["fixed", "evergreen", "unclear"] = Field(default="unclear", description="fixed: has an end; evergreen: continues until terminated; unclear: cannot tell.")
     # Only a date written out in the text, never one the model worked out.
-    stated_end_date: date | None = None
-    stated_end_date_quote: str | None = None
-    initial_term: InitialTerm | None = None
-    auto_renews: bool | None = None
-    renewal_term: TermLength | None = None
-    max_renewals: int | None = Field(default=None, ge=0, le=100)
-    notice_terms: list[RenewalNoticeTerm] = Field(default_factory=list)
-    termination_rights_summary: str | None = None
-    confidence: Literal["high", "medium", "low"] = "low"
-    needs_review: bool = False
-    citations: list[CitationInput] = Field(default_factory=list)
+    stated_end_date: date | None = Field(default=None, description="End date written out in the text, YYYY-MM-DD.")
+    stated_end_date_quote: str | None = Field(default=None, description="The exact words giving that end date.")
+    initial_term: InitialTerm | None = Field(default=None, description="Length of the first term, if stated.")
+    auto_renews: bool | None = Field(default=None, description="True or false only if the contract says; null if unclear.")
+    renewal_term: TermLength | None = Field(default=None, description="Length of each renewal term, if stated.")
+    max_renewals: int | None = Field(default=None, ge=0, le=100, description="Maximum number of renewals, if capped.")
+    notice_terms: list[RenewalNoticeTerm] = Field(default_factory=list, description="Every notice clause, one entry each.")
+    termination_rights_summary: str | None = Field(default=None, description="Short summary of termination rights.")
+    confidence: Literal["high", "medium", "low"] = Field(default="low", description="How clearly the text states the term and renewal.")
+    needs_review: bool = Field(default=False, description="True when a material field is null, conflicting or the text is partial.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Exact quotes for each populated date or renewal field.")
 
 
 class BrainAnswerOutput(BaseModel):
-    answer: str = Field(min_length=1)
-    citations: list[CitationInput] = Field(default_factory=list)
-    related_contract_ids: list[str] = Field(default_factory=list)
-    confidence: Literal["high", "medium", "low"] = "low"
-    limitations: str | None = None
+    answer: str = Field(min_length=1, description="The direct answer, concise and evidence-led, naming the contracts it rests on.")
+    citations: list[CitationInput] = Field(default_factory=list, description="One per contract-specific claim: 8-25 words copied character-for-character from the supplied context.")
+    related_contract_ids: list[str] = Field(default_factory=list, description="Ids of the contracts the answer is about, as given in the context.")
+    confidence: Literal["high", "medium", "low"] = Field(default="low", description="high: explicit quoted language supports the key claims; medium: a limited inference from quoted facts; low: thin, ambiguous or conflicting.")
+    limitations: str | None = Field(default=None, description="Only the specific gap in the context, if any; must not contradict the answer.")
 
 
 class DateRange(BaseModel):
@@ -377,18 +377,20 @@ class PortfolioFilter(BaseModel):
 
     # As the user said it ("NDA", "statement of work"); matched by the phrases that name each
     # kind (contract_brain/portfolio.py _KINDS).
-    contract_types: list[str] = Field(default_factory=list)
-    counterparty: str | None = None
-    governing_law: str | None = None  # a place: "England and Wales", "Singapore", "Delaware"
+    contract_types: list[str] = Field(default_factory=list, description="Kinds of contract as the user said them: NDA, MSA, statement of work.")
+    counterparty: str | None = Field(default=None, description="The other party's name as the user said it.")
+    governing_law: str | None = Field(default=None, description="A place: England and Wales, Singapore, Delaware.")
     stages: list[Literal["intake", "drafting", "review", "approval", "signature", "active", "closed"]] = Field(
-        default_factory=list
+        default_factory=list, description="Lifecycle stages, only when the question names one."
     )
-    risk_bands: list[Literal["low", "medium", "high", "unknown"]] = Field(default_factory=list)
-    effective: DateRange | None = None
-    expires: DateRange | None = None
-    value_min: float | None = Field(default=None, ge=0)
-    value_max: float | None = Field(default=None, ge=0)
-    currency: str | None = None  # ISO-4217; a value bound needs one ("1 crore" = 10000000 INR)
+    risk_bands: list[Literal["low", "medium", "high", "unknown"]] = Field(
+        default_factory=list, description="Risk levels, only when named; unknown means not yet reviewed."
+    )
+    effective: DateRange | None = Field(default=None, description="Condition on the start date, as the user said it.")
+    expires: DateRange | None = Field(default=None, description="Condition on the end date, as the user said it.")
+    value_min: float | None = Field(default=None, ge=0, description="Lowest contract value, written in full (1 crore = 10000000).")
+    value_max: float | None = Field(default=None, ge=0, description="Highest contract value, written in full.")
+    currency: str | None = Field(default=None, description="ISO-4217 code; required with a value bound. Use the default currency if none is said.")
     wording: list[str] = Field(
         default_factory=list,
         max_length=5,
@@ -408,61 +410,64 @@ class PortfolioFilter(BaseModel):
         description="Parts of the question no field or question can check (anything about today, e.g. "
         "'notice deadline this quarter'), in the user's words. Shown as not checked, never dropped.",
     )
-    count_only: bool = False  # "how many" (the list is still returned)
+    count_only: bool = Field(default=False, description="True for how many / count / number of (the list is still returned).")
 
 
 class PortfolioFilterOutput(PortfolioFilter):
     # False when the question is not "which / how many / list contracts ..." (for example
     # "what is our usual liability cap?"): such a question goes to search instead.
-    is_list_question: bool
+    is_list_question: bool = Field(description="False when the question is not which / how many / list contracts; then leave every other field empty.")
 
 
 class TabularCellOutput(BaseModel):
-    answer: str = ""
-    reasoning: str | None = None
-    not_found: bool = False
+    answer: str = Field(default="", description="Concise answer to the precise question, with qualifiers kept; empty when not_found.")
+    reasoning: str | None = Field(default=None, description="Brief reasoning; when not_found, the specific gap.")
+    not_found: bool = Field(default=False, description="True when the contract is silent on the question. Silence is not 'no'.")
     # Set only for a column that asks a yes/no question. Code decides from this, never
     # from the answer's prose (portfolio filter: contract_brain/portfolio.py).
-    verdict: Literal["yes", "no", "not_stated"] | None = None
-    confidence: Literal["high", "medium", "low"] = "low"
-    citations: list[CitationInput] = Field(default_factory=list)
+    verdict: Literal["yes", "no", "not_stated"] | None = Field(
+        default=None,
+        description="Only for a yes/no question: yes or no if the text says so explicitly, not_stated if it is silent. Null otherwise.",
+    )
+    confidence: Literal["high", "medium", "low"] = Field(default="low", description="Low for partial, ambiguous, conflicting or OCR-damaged text.")
+    citations: list[CitationInput] = Field(default_factory=list, description="A short verbatim quote that directly supports the answer, with its section when known.")
 
 
 class TabularRowAnswer(TabularCellOutput):
-    column_id: str
+    column_id: str = Field(description="The column_id exactly as supplied.")
 
 
 class TabularRowOutput(BaseModel):
-    answers: list[TabularRowAnswer] = Field(default_factory=list)
+    answers: list[TabularRowAnswer] = Field(default_factory=list, description="Exactly one answer per supplied question, in the same order.")
 
 
 class TabularChatOutput(BaseModel):
-    answer: str = Field(min_length=1)
-    citations: list[CitationInput] = Field(default_factory=list)
+    answer: str = Field(min_length=1, description="Bottom line first; a compact table when comparing contracts. Missing data is never 'no'.")
+    citations: list[CitationInput] = Field(default_factory=list, description="The contract and cell evidence for each material claim.")
 
 
 class PrivacyIncidentAssessmentOutput(BaseModel):
-    severity: Literal["low", "medium", "high", "critical"] = "medium"
-    notification_required: bool = False
+    severity: Literal["low", "medium", "high", "critical"] = Field(default="medium", description="From data type, scale, cause, access and harm: critical = sensitive data at scale or ongoing compromise; low = near miss or internal-only.")
+    notification_required: bool = Field(default=False, description="True only when the facts and a stated jurisdiction or contract support a notification duty.")
     # Hours from discovery, e.g. 72 for a DPDP-style breach clock — null when no
     # statutory notification clock applies.
-    notification_deadline_hours: int | None = None
-    affected_data_categories: list[str] = Field(default_factory=list)
-    estimated_affected_count: str | None = None
-    recommended_immediate_actions: list[str] = Field(default_factory=list)
-    rationale: str = Field(min_length=1)
+    notification_deadline_hours: int | None = Field(default=None, description="Hours from discovery under a clock the facts support; null when none applies. Never assume 72.")
+    affected_data_categories: list[str] = Field(default_factory=list, description="Plain terms drawn only from the input.")
+    estimated_affected_count: str | None = Field(default=None, description="As stated, or 'unknown — under investigation' when the input says it is uncertain; never invented.")
+    recommended_immediate_actions: list[str] = Field(default_factory=list, description="2-5 concrete steps specific to this incident, supported by the facts.")
+    rationale: str = Field(min_length=1, description="1-3 sentences tied to data type, scale, cause, access and harm.")
     # Numeric, not high/medium/low — this feeds the flow engine's
     # escalate_below_confidence gate directly, unlike this file's other skills.
     # No default: this is the one field the whole gate depends on, so a model
     # response that omits it must fail loudly (a validation error), not silently
     # pass as an unearned "medium confidence" verdict.
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0, description="Evidentiary completeness, not seriousness: 0.85-1.0 only when category, scale, cause, access and timing are clear; below 0.4 when too sparse.")
 
 
 class AssistantAnswerOutput(BaseModel):
-    answer: str
-    citations: list[CitationInput] = Field(default_factory=list)
-    tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    answer: str = Field(description="The reply shown to the user.")
+    citations: list[CitationInput] = Field(default_factory=list, description="Verbatim quotes for each contract-specific claim.")
+    tool_results: list[dict[str, Any]] = Field(default_factory=list, description="Results of tools called while answering.")
 
 
 class AISkillRunResponse(BaseModel):

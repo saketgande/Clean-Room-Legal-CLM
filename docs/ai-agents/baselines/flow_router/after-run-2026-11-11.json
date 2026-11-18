@@ -1,0 +1,20 @@
+{
+  "feature": "flow_router",
+  "run": "after output model + trimmed prompt (prompt_version 1.1.0), same request REQ-4002 (Globex MSA, their paper)",
+  "model": "claude-sonnet-4-6",
+  "prompt_tokens": 4543,
+  "completion_tokens": 400,
+  "latency_ms": 10852,
+  "status": "succeeded",
+  "stop_reason": "tool_use",
+  "model_output": {
+    "flow_id": "ee2faae9-cebc-435e-98a1-7c5d5c5de12f",
+    "confidence": 0.72,
+    "reasoning": "The request is for review of a Master Services Agreement (MSA) with complex, non-standard clauses (uncapped liability, unilateral termination, broad IP assignment) on the counterparty's paper. The MSA workflow covers the full MSA lifecycle including legal review and counterparty negotiation, which aligns with the need for a careful redline. The value (250,000 INR) is below the high-value MSA threshold, and the general MSA flow is the best fit.",
+    "alternatives": [
+      {"flow_id": "48f7b9c1-c77c-4f30-9865-444d7549f927", "why": "The Contract Approval Ladder is the default for commercial contracts and could cover an MSA review, but the dedicated MSA workflow is more specific."},
+      {"flow_id": "57f1897a-e508-4164-9bf4-c260ec154ac9", "why": "MSA - high value was considered but the contract value is well below the threshold."}
+    ],
+    "needs_human": false
+  }
+}

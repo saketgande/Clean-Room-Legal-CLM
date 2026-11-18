@@ -1,0 +1,85 @@
+{
+  "feature": "playbook_expand",
+  "kind": "task",
+  "returned_by_app_function": {
+    "rules": [
+      {
+        "clause_type": "loss_and_damage_liability",
+        "preferred_position": "Warehouse operator liability for loss or damage to stored goods is capped at the lesser of (a) actual replacement cost or (b) a fixed per-unit/per-pallet monetary cap agreed at contract execution; operator liable only upon proof of negligence or wilful misconduct; no liability for inherent vice, acts of God, or customer-packaging defects.",
+        "fallback_position": "Operator liable for loss or damage caused by its negligence up to actual replacement cost, subject to an aggregate per-incident cap equal to three months' storage fees; strict liability and consequential loss claims remain excluded.",
+        "prohibited_language": "Any language imposing strict liability, unlimited liability, or liability for indirect/consequential losses arising from loss or damage to stored goods.",
+        "risk_level": "high",
+        "rationale": "Warehousing agreements carry significant exposure for physical loss or damage to customer inventory; capping and fault-gating liability protects the company from outsized claims relative to storage revenue.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "insurance",
+        "preferred_position": "Customer is solely responsible for insuring its own stored goods at full replacement value; company maintains only standard warehouse legal liability (WLL) coverage and is not required to carry all-risk cargo insurance; customer must name company as additional insured on its cargo policy and waive subrogation against company.",
+        "fallback_position": "Company maintains warehouse legal liability coverage at minimum industry-standard limits; customer retains obligation to insure goods above those limits and waives subrogation against company to the extent of any insurance recovery.",
+        "prohibited_language": "Any language requiring the company to carry all-risk or bailee's customer goods insurance, or any provision that deems the company an insurer of last resort for customer inventory.",
+        "risk_level": "medium",
+        "rationale": "Allocating cargo insurance responsibility to the customer (the goods owner) prevents the company from bearing premium costs and claims exposure for inventory values it does not control.",
+        "approval_required": false
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "playbook_expand",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 923,
+      "completion_tokens": 528,
+      "total_tokens": 1451,
+      "latency_ms": 12884.133175997704,
+      "validated_output": {
+        "rules": [
+          {
+            "clause_type": "loss_and_damage_liability",
+            "preferred_position": "Warehouse operator liability for loss or damage to stored goods is capped at the lesser of (a) actual replacement cost or (b) a fixed per-unit/per-pallet monetary cap agreed at contract execution; operator liable only upon proof of negligence or wilful misconduct; no liability for inherent vice, acts of God, or customer-packaging defects.",
+            "fallback_position": "Operator liable for loss or damage caused by its negligence up to actual replacement cost, subject to an aggregate per-incident cap equal to three months' storage fees; strict liability and consequential loss claims remain excluded.",
+            "prohibited_language": "Any language imposing strict liability, unlimited liability, or liability for indirect/consequential losses arising from loss or damage to stored goods.",
+            "risk_level": "high",
+            "rationale": "Warehousing agreements carry significant exposure for physical loss or damage to customer inventory; capping and fault-gating liability protects the company from outsized claims relative to storage revenue.",
+            "approval_required": true
+          },
+          {
+            "clause_type": "insurance",
+            "preferred_position": "Customer is solely responsible for insuring its own stored goods at full replacement value; company maintains only standard warehouse legal liability (WLL) coverage and is not required to carry all-risk cargo insurance; customer must name company as additional insured on its cargo policy and waive subrogation against company.",
+            "fallback_position": "Company maintains warehouse legal liability coverage at minimum industry-standard limits; customer retains obligation to insure goods above those limits and waives subrogation against company to the extent of any insurance recovery.",
+            "prohibited_language": "Any language requiring the company to carry all-risk or bailee's customer goods insurance, or any provision that deems the company an insurer of last resort for customer inventory.",
+            "risk_level": "medium",
+            "rationale": "Allocating cargo insurance responsibility to the customer (the goods owner) prevents the company from bearing premium costs and claims exposure for inventory values it does not control.",
+            "approval_required": false
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "rules": [
+      {
+        "clause_type": "loss_and_damage_liability",
+        "preferred_position": "Warehouse operator liability for loss or damage to stored goods is capped at the lesser of (a) actual replacement cost or (b) a fixed per-unit/per-pallet monetary cap agreed at contract execution; operator liable only upon proof of negligence or wilful misconduct; no liability for inherent vice, acts of God, or customer-packaging defects.",
+        "fallback_position": "Operator liable for loss or damage caused by its negligence up to actual replacement cost, subject to an aggregate per-incident cap equal to three months' storage fees; strict liability and consequential loss claims remain excluded.",
+        "prohibited_language": "Any language imposing strict liability, unlimited liability, or liability for indirect/consequential losses arising from loss or damage to stored goods.",
+        "risk_level": "high",
+        "rationale": "Warehousing agreements carry significant exposure for physical loss or damage to customer inventory; capping and fault-gating liability protects the company from outsized claims relative to storage revenue.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "insurance",
+        "preferred_position": "Customer is solely responsible for insuring its own stored goods at full replacement value; company maintains only standard warehouse legal liability (WLL) coverage and is not required to carry all-risk cargo insurance; customer must name company as additional insured on its cargo policy and waive subrogation against company.",
+        "fallback_position": "Company maintains warehouse legal liability coverage at minimum industry-standard limits; customer retains obligation to insure goods above those limits and waives subrogation against company to the extent of any insurance recovery.",
+        "prohibited_language": "Any language requiring the company to carry all-risk or bailee's customer goods insurance, or any provision that deems the company an insurer of last resort for customer inventory.",
+        "risk_level": "medium",
+        "rationale": "Allocating cargo insurance responsibility to the customer (the goods owner) prevents the company from bearing premium costs and claims exposure for inventory values it does not control.",
+        "approval_required": false
+      }
+    ]
+  }
+}

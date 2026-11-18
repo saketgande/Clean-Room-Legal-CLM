@@ -1,0 +1,66 @@
+{
+  "feature": "flow_router",
+  "kind": "agent",
+  "returned_by_app_function": {
+    "flow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+    "flow_name": "NDA — their paper",
+    "confidence": 0.93,
+    "reasoning": "The counterparty has provided their own NDA draft (\"their paper\") and is unwilling to use our template. This maps directly to the \"NDA — their paper\" workflow, which covers AI review against our NDA playbook, Legal review, negotiation, and signature.",
+    "alternatives": [
+      {
+        "flow_id": "48f7b9c1-c77c-4f30-9865-444d7549f927",
+        "flow_name": "Contract Approval Ladder",
+        "why": "Generic fallback for commercial contracts, but the NDA-specific workflow is a much better fit here."
+      }
+    ],
+    "needs_human": false,
+    "source": "llm",
+    "steps": [
+      "AI review",
+      "Legal review",
+      "Privacy review",
+      "Counterparty negotiation",
+      "Signature",
+      "Activate & track"
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "flow_router",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 5044,
+      "completion_tokens": 245,
+      "total_tokens": 5289,
+      "latency_ms": 5215.700761000335,
+      "validated_output": {
+        "flow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+        "confidence": 0.93,
+        "reasoning": "The counterparty has provided their own NDA draft (\"their paper\") and is unwilling to use our template. This maps directly to the \"NDA — their paper\" workflow, which covers AI review against our NDA playbook, Legal review, negotiation, and signature.",
+        "needs_human": false,
+        "alternatives": [
+          {
+            "flow_id": "48f7b9c1-c77c-4f30-9865-444d7549f927",
+            "why": "Generic fallback for commercial contracts, but the NDA-specific workflow is a much better fit here."
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "flow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+    "confidence": 0.93,
+    "reasoning": "The counterparty has provided their own NDA draft (\"their paper\") and is unwilling to use our template. This maps directly to the \"NDA — their paper\" workflow, which covers AI review against our NDA playbook, Legal review, negotiation, and signature.",
+    "needs_human": false,
+    "alternatives": [
+      {
+        "flow_id": "48f7b9c1-c77c-4f30-9865-444d7549f927",
+        "why": "Generic fallback for commercial contracts, but the NDA-specific workflow is a much better fit here."
+      }
+    ]
+  }
+}

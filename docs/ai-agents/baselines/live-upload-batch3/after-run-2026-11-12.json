@@ -1,0 +1,4 @@
+{"note":"Live run on a test MSA (Brightwave Analytics), dev stack, real Claude. Contract 42694f8d-df92-4955-aae0-46f2f79e021d",
+ "ledger":{"contract_metadata_extraction@1.1.0":{"in":3515,"out":536},"clause_labeling@1.1.0":{"in":1805,"out":408},"obligation_extraction@2.0.0":{"in":1667,"out":1950},"renewal_extraction@2.0.0":{"in":1640,"out":715}},
+ "stored":{"metadata":"MSA, Brightwave Analytics Pvt Ltd, India (Mumbai), INR 12,000,000, 2026-04-01 to 2028-04-01","clauses":7,"obligations":7,"renewal":"fixed, initial 2 years, 90-day non-renewal notice"},
+ "caveat":"obligation/renewal ran under 2.0.0; registry then bumped to 2.1.0. clause_extraction not used (reader segmented the document, so clause_labeling ran instead)."}

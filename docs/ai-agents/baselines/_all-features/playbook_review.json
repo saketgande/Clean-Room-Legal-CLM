@@ -1,0 +1,274 @@
+{
+  "feature": "playbook_review",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "deviations": [
+      {
+        "rule_index": 1,
+        "clause_type": "limitation_of_liability",
+        "severity": "high",
+        "issue": "The liability cap applies only to the Supplier, not mutually to both parties — the Customer (Aegis Test Pvt Ltd) faces uncapped liability exposure. The playbook requires the cap to be mutual. This asymmetry creates material financial exposure for the org and requires senior-counsel review and approval escalation.",
+        "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "suggested_fix": "Each party's total aggregate liability to the other under or in connection with this Agreement shall not exceed the fees paid or payable in the 12 months immediately preceding the event giving rise to the claim.",
+        "approval_required": true,
+        "citations": [
+          {
+            "label": "Clause 4 – Limitation of Liability (cap not mutual)",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "rule_index": 2,
+        "clause_type": "payment_terms",
+        "severity": "low",
+        "issue": "Payment is due within 30 days of receipt of invoice, which matches the playbook fallback position (30 days) but falls short of the preferred position of 45 days. As the Supplier (the party being paid), a shorter payment period is favourable; however, the playbook preferred position is 45 days and this should be tracked as a deviation from preferred. No escalation required, but the deviation should be noted.",
+        "original_text": "Invoices are payable within 30 days of receipt.",
+        "suggested_fix": "Invoices are payable within 45 days of receipt.",
+        "approval_required": false,
+        "citations": [
+          {
+            "label": "Clause 1 – Payment Terms",
+            "quote": "Invoices are payable within 30 days of receipt.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "rule_index": 3,
+        "clause_type": "governing_law",
+        "severity": "low",
+        "issue": "The contract designates the courts of Mumbai as having exclusive jurisdiction, whereas the playbook preferred position is the courts of Delhi (fallback: any Indian court). Mumbai courts are off-playbook and could increase litigation cost and inconvenience for the org. Low severity; no escalation required but should be flagged for negotiation.",
+        "original_text": "The courts of Mumbai have exclusive jurisdiction.",
+        "suggested_fix": "The courts of Delhi shall have exclusive jurisdiction.",
+        "approval_required": false,
+        "citations": [
+          {
+            "label": "Clause 7 – Governing Law",
+            "quote": "The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "summary": "Three deviations identified against the playbook for this Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer). The most significant issue is that the liability cap in Clause 4 is one-sided, protecting only the Supplier and leaving the Customer with uncapped exposure — this requires approval escalation. The payment term of 30 days matches the playbook fallback but not the preferred 45-day position. The governing law clause designates Mumbai courts instead of the preferred Delhi courts. No prohibited language (\"unlimited liability\") was found in the contract.",
+    "citations": [
+      {
+        "label": "Clause 4 – Limitation of Liability",
+        "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Clause 1 – Payment Terms",
+        "quote": "Invoices are payable within 30 days of receipt.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Clause 7 – Governing Law",
+        "quote": "The courts of Mumbai have exclusive jurisdiction.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "playbook_review",
+      "prompt_version": "1.0.1",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1854,
+      "completion_tokens": 1053,
+      "total_tokens": 2907,
+      "latency_ms": 16107.468881004024,
+      "validated_output": {
+        "deviations": [
+          {
+            "rule_index": 1,
+            "clause_type": "limitation_of_liability",
+            "severity": "high",
+            "issue": "The liability cap applies only to the Supplier, not mutually to both parties — the Customer (Aegis Test Pvt Ltd) faces uncapped liability exposure. The playbook requires the cap to be mutual. This asymmetry creates material financial exposure for the org and requires senior-counsel review and approval escalation.",
+            "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+            "suggested_fix": "Each party's total aggregate liability to the other under or in connection with this Agreement shall not exceed the fees paid or payable in the 12 months immediately preceding the event giving rise to the claim.",
+            "approval_required": true,
+            "citations": [
+              {
+                "label": "Clause 4 – Limitation of Liability (cap not mutual)",
+                "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ],
+            "confidence": "high"
+          },
+          {
+            "rule_index": 2,
+            "clause_type": "payment_terms",
+            "severity": "low",
+            "issue": "Payment is due within 30 days of receipt of invoice, which matches the playbook fallback position (30 days) but falls short of the preferred position of 45 days. As the Supplier (the party being paid), a shorter payment period is favourable; however, the playbook preferred position is 45 days and this should be tracked as a deviation from preferred. No escalation required, but the deviation should be noted.",
+            "original_text": "Invoices are payable within 30 days of receipt.",
+            "suggested_fix": "Invoices are payable within 45 days of receipt.",
+            "approval_required": false,
+            "citations": [
+              {
+                "label": "Clause 1 – Payment Terms",
+                "quote": "Invoices are payable within 30 days of receipt.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ],
+            "confidence": "high"
+          },
+          {
+            "rule_index": 3,
+            "clause_type": "governing_law",
+            "severity": "low",
+            "issue": "The contract designates the courts of Mumbai as having exclusive jurisdiction, whereas the playbook preferred position is the courts of Delhi (fallback: any Indian court). Mumbai courts are off-playbook and could increase litigation cost and inconvenience for the org. Low severity; no escalation required but should be flagged for negotiation.",
+            "original_text": "The courts of Mumbai have exclusive jurisdiction.",
+            "suggested_fix": "The courts of Delhi shall have exclusive jurisdiction.",
+            "approval_required": false,
+            "citations": [
+              {
+                "label": "Clause 7 – Governing Law",
+                "quote": "The courts of Mumbai have exclusive jurisdiction.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ],
+            "confidence": "high"
+          }
+        ],
+        "summary": "Three deviations identified against the playbook for this Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer). The most significant issue is that the liability cap in Clause 4 is one-sided, protecting only the Supplier and leaving the Customer with uncapped exposure — this requires approval escalation. The payment term of 30 days matches the playbook fallback but not the preferred 45-day position. The governing law clause designates Mumbai courts instead of the preferred Delhi courts. No prohibited language (\"unlimited liability\") was found in the contract.",
+        "citations": [
+          {
+            "label": "Clause 4 – Limitation of Liability",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "Clause 1 – Payment Terms",
+            "quote": "Invoices are payable within 30 days of receipt.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "Clause 7 – Governing Law",
+            "quote": "The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "deviations": [
+      {
+        "rule_index": 1,
+        "clause_type": "limitation_of_liability",
+        "severity": "high",
+        "issue": "The liability cap applies only to the Supplier, not mutually to both parties — the Customer (Aegis Test Pvt Ltd) faces uncapped liability exposure. The playbook requires the cap to be mutual. This asymmetry creates material financial exposure for the org and requires senior-counsel review and approval escalation.",
+        "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "suggested_fix": "Each party's total aggregate liability to the other under or in connection with this Agreement shall not exceed the fees paid or payable in the 12 months immediately preceding the event giving rise to the claim.",
+        "approval_required": true,
+        "citations": [
+          {
+            "label": "Clause 4 – Limitation of Liability (cap not mutual)",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "rule_index": 2,
+        "clause_type": "payment_terms",
+        "severity": "low",
+        "issue": "Payment is due within 30 days of receipt of invoice, which matches the playbook fallback position (30 days) but falls short of the preferred position of 45 days. As the Supplier (the party being paid), a shorter payment period is favourable; however, the playbook preferred position is 45 days and this should be tracked as a deviation from preferred. No escalation required, but the deviation should be noted.",
+        "original_text": "Invoices are payable within 30 days of receipt.",
+        "suggested_fix": "Invoices are payable within 45 days of receipt.",
+        "approval_required": false,
+        "citations": [
+          {
+            "label": "Clause 1 – Payment Terms",
+            "quote": "Invoices are payable within 30 days of receipt.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      },
+      {
+        "rule_index": 3,
+        "clause_type": "governing_law",
+        "severity": "low",
+        "issue": "The contract designates the courts of Mumbai as having exclusive jurisdiction, whereas the playbook preferred position is the courts of Delhi (fallback: any Indian court). Mumbai courts are off-playbook and could increase litigation cost and inconvenience for the org. Low severity; no escalation required but should be flagged for negotiation.",
+        "original_text": "The courts of Mumbai have exclusive jurisdiction.",
+        "suggested_fix": "The courts of Delhi shall have exclusive jurisdiction.",
+        "approval_required": false,
+        "citations": [
+          {
+            "label": "Clause 7 – Governing Law",
+            "quote": "The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "confidence": "high"
+      }
+    ],
+    "summary": "Three deviations identified against the playbook for this Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer). The most significant issue is that the liability cap in Clause 4 is one-sided, protecting only the Supplier and leaving the Customer with uncapped exposure — this requires approval escalation. The payment term of 30 days matches the playbook fallback but not the preferred 45-day position. The governing law clause designates Mumbai courts instead of the preferred Delhi courts. No prohibited language (\"unlimited liability\") was found in the contract.",
+    "citations": [
+      {
+        "label": "Clause 4 – Limitation of Liability",
+        "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Clause 1 – Payment Terms",
+        "quote": "Invoices are payable within 30 days of receipt.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Clause 7 – Governing Law",
+        "quote": "The courts of Mumbai have exclusive jurisdiction.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  }
+}

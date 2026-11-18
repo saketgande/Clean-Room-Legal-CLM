@@ -1,0 +1,643 @@
+{
+  "feature": "obligation_extraction",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "obligations": [
+      {
+        "obligation_type": "Payment",
+        "description": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+        "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "ongoing",
+          "period_number": null,
+          "period_unit": null,
+          "direction": "after",
+          "anchor": "invoice_received",
+          "anchor_text": "invoiced quarterly",
+          "stated_in_text": false,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "quarterly",
+        "recurrence_note": "Annual fee of INR 12,00,000 invoiced quarterly.",
+        "source_clause_type": "Fees / Payment",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 1 – Services and Fees",
+            "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Payment",
+        "description": "Invoices are payable within 30 days of receipt.",
+        "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 30,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "invoice_received",
+          "anchor_text": "receipt",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies to each quarterly invoice issued.",
+        "source_clause_type": "Fees / Payment",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 1 – Services and Fees",
+            "quote": "Invoices are payable within 30 days of receipt.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Notice",
+        "description": "Either party must give 60 days' written notice of non-renewal before the end of the then-current term to prevent automatic renewal.",
+        "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 60,
+          "period_unit": "days",
+          "direction": "before",
+          "anchor": "expiration_date",
+          "anchor_text": "end of the then-current term",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "annually",
+        "recurrence_note": "Applies before the end of each 12-month renewal term.",
+        "source_clause_type": "Term and Renewal",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 2 – Term and Renewal",
+            "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Reporting",
+        "description": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+        "responsible_party": "Supplier (Acme Supplies Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 10,
+          "period_unit": "business_days",
+          "direction": "after",
+          "anchor": "other",
+          "anchor_text": "end of each month",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "monthly",
+        "recurrence_note": "A stock report is due within 10 business days after the end of each calendar month.",
+        "source_clause_type": "Reports",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 3 – Reports",
+            "quote": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Confidentiality",
+        "description": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+        "responsible_party": "Both parties (Acme Supplies Ltd and Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "ongoing",
+          "period_number": 3,
+          "period_unit": "years",
+          "direction": "after",
+          "anchor": "termination",
+          "anchor_text": "after termination",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "none",
+        "recurrence_note": "Ongoing duty lasting 3 years post-termination.",
+        "source_clause_type": "Confidentiality",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 5 – Confidentiality",
+            "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Notice",
+        "description": "Either party may terminate for convenience by giving 30 days' written notice.",
+        "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 30,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "notice_received",
+          "anchor_text": "30 days' written notice",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies each time a party elects to terminate for convenience.",
+        "source_clause_type": "Termination",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 6 – Termination",
+            "quote": "Either party may terminate for convenience on 30 days' written notice",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Cure / Remedy",
+        "description": "A party in material breach must cure the breach within 15 days of notice, failing which the other party may terminate immediately.",
+        "responsible_party": "Breaching party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 15,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "notice_received",
+          "anchor_text": "material breach not cured within 15 days",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies per occurrence of material breach.",
+        "source_clause_type": "Termination",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 6 – Termination",
+            "quote": "or immediately for material breach not cured within 15 days",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "extraction_notes": "Seven obligations extracted from a Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer), dated 1 January 2027. All obligations have clear owners and determinable deadlines or durations. Clauses 4 (Limitation of Liability) and 7 (Governing Law) contain no actionable obligations and were excluded. The cure-period obligation in Clause 6 is conditional on a material breach occurring but carries an explicit 15-day period, so it is classified as a deadline with per_event recurrence."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "obligation_extraction",
+      "prompt_version": "2.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1413,
+      "completion_tokens": 2108,
+      "total_tokens": 3521,
+      "latency_ms": 22199.55390100222,
+      "validated_output": {
+        "obligations": [
+          {
+            "obligation_type": "Payment",
+            "description": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+            "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "ongoing",
+              "period_number": null,
+              "period_unit": null,
+              "direction": "after",
+              "anchor": "invoice_received",
+              "anchor_text": "invoiced quarterly",
+              "stated_in_text": false,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "quarterly",
+            "recurrence_note": "Annual fee of INR 12,00,000 invoiced quarterly.",
+            "source_clause_type": "Fees / Payment",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 1 – Services and Fees",
+                "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Payment",
+            "description": "Invoices are payable within 30 days of receipt.",
+            "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "deadline",
+              "period_number": 30,
+              "period_unit": "days",
+              "direction": "after",
+              "anchor": "invoice_received",
+              "anchor_text": "receipt",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "per_event",
+            "recurrence_note": "Applies to each quarterly invoice issued.",
+            "source_clause_type": "Fees / Payment",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 1 – Services and Fees",
+                "quote": "Invoices are payable within 30 days of receipt.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Notice",
+            "description": "Either party must give 60 days' written notice of non-renewal before the end of the then-current term to prevent automatic renewal.",
+            "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "deadline",
+              "period_number": 60,
+              "period_unit": "days",
+              "direction": "before",
+              "anchor": "expiration_date",
+              "anchor_text": "end of the then-current term",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "annually",
+            "recurrence_note": "Applies before the end of each 12-month renewal term.",
+            "source_clause_type": "Term and Renewal",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 2 – Term and Renewal",
+                "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Reporting",
+            "description": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+            "responsible_party": "Supplier (Acme Supplies Ltd)",
+            "timing": {
+              "kind": "deadline",
+              "period_number": 10,
+              "period_unit": "business_days",
+              "direction": "after",
+              "anchor": "other",
+              "anchor_text": "end of each month",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "monthly",
+            "recurrence_note": "A stock report is due within 10 business days after the end of each calendar month.",
+            "source_clause_type": "Reports",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 3 – Reports",
+                "quote": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Confidentiality",
+            "description": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "responsible_party": "Both parties (Acme Supplies Ltd and Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "ongoing",
+              "period_number": 3,
+              "period_unit": "years",
+              "direction": "after",
+              "anchor": "termination",
+              "anchor_text": "after termination",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "none",
+            "recurrence_note": "Ongoing duty lasting 3 years post-termination.",
+            "source_clause_type": "Confidentiality",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 5 – Confidentiality",
+                "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Notice",
+            "description": "Either party may terminate for convenience by giving 30 days' written notice.",
+            "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "deadline",
+              "period_number": 30,
+              "period_unit": "days",
+              "direction": "after",
+              "anchor": "notice_received",
+              "anchor_text": "30 days' written notice",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "per_event",
+            "recurrence_note": "Applies each time a party elects to terminate for convenience.",
+            "source_clause_type": "Termination",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 6 – Termination",
+                "quote": "Either party may terminate for convenience on 30 days' written notice",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "obligation_type": "Cure / Remedy",
+            "description": "A party in material breach must cure the breach within 15 days of notice, failing which the other party may terminate immediately.",
+            "responsible_party": "Breaching party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+            "timing": {
+              "kind": "deadline",
+              "period_number": 15,
+              "period_unit": "days",
+              "direction": "after",
+              "anchor": "notice_received",
+              "anchor_text": "material breach not cured within 15 days",
+              "stated_in_text": true,
+              "clear_days": false,
+              "explicit_date": null
+            },
+            "recurrence": "per_event",
+            "recurrence_note": "Applies per occurrence of material breach.",
+            "source_clause_type": "Termination",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Clause 6 – Termination",
+                "quote": "or immediately for material breach not cured within 15 days",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          }
+        ],
+        "extraction_notes": "Seven obligations extracted from a Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer), dated 1 January 2027. All obligations have clear owners and determinable deadlines or durations. Clauses 4 (Limitation of Liability) and 7 (Governing Law) contain no actionable obligations and were excluded. The cure-period obligation in Clause 6 is conditional on a material breach occurring but carries an explicit 15-day period, so it is classified as a deadline with per_event recurrence."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "obligations": [
+      {
+        "obligation_type": "Payment",
+        "description": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+        "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "ongoing",
+          "period_number": null,
+          "period_unit": null,
+          "direction": "after",
+          "anchor": "invoice_received",
+          "anchor_text": "invoiced quarterly",
+          "stated_in_text": false,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "quarterly",
+        "recurrence_note": "Annual fee of INR 12,00,000 invoiced quarterly.",
+        "source_clause_type": "Fees / Payment",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 1 – Services and Fees",
+            "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Payment",
+        "description": "Invoices are payable within 30 days of receipt.",
+        "responsible_party": "Customer (Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 30,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "invoice_received",
+          "anchor_text": "receipt",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies to each quarterly invoice issued.",
+        "source_clause_type": "Fees / Payment",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 1 – Services and Fees",
+            "quote": "Invoices are payable within 30 days of receipt.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Notice",
+        "description": "Either party must give 60 days' written notice of non-renewal before the end of the then-current term to prevent automatic renewal.",
+        "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 60,
+          "period_unit": "days",
+          "direction": "before",
+          "anchor": "expiration_date",
+          "anchor_text": "end of the then-current term",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "annually",
+        "recurrence_note": "Applies before the end of each 12-month renewal term.",
+        "source_clause_type": "Term and Renewal",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 2 – Term and Renewal",
+            "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Reporting",
+        "description": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+        "responsible_party": "Supplier (Acme Supplies Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 10,
+          "period_unit": "business_days",
+          "direction": "after",
+          "anchor": "other",
+          "anchor_text": "end of each month",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "monthly",
+        "recurrence_note": "A stock report is due within 10 business days after the end of each calendar month.",
+        "source_clause_type": "Reports",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 3 – Reports",
+            "quote": "The Supplier shall deliver a stock report within 10 business days after the end of each month.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Confidentiality",
+        "description": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+        "responsible_party": "Both parties (Acme Supplies Ltd and Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "ongoing",
+          "period_number": 3,
+          "period_unit": "years",
+          "direction": "after",
+          "anchor": "termination",
+          "anchor_text": "after termination",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "none",
+        "recurrence_note": "Ongoing duty lasting 3 years post-termination.",
+        "source_clause_type": "Confidentiality",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 5 – Confidentiality",
+            "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Notice",
+        "description": "Either party may terminate for convenience by giving 30 days' written notice.",
+        "responsible_party": "Either party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 30,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "notice_received",
+          "anchor_text": "30 days' written notice",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies each time a party elects to terminate for convenience.",
+        "source_clause_type": "Termination",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 6 – Termination",
+            "quote": "Either party may terminate for convenience on 30 days' written notice",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "obligation_type": "Cure / Remedy",
+        "description": "A party in material breach must cure the breach within 15 days of notice, failing which the other party may terminate immediately.",
+        "responsible_party": "Breaching party (Acme Supplies Ltd or Aegis Test Pvt Ltd)",
+        "timing": {
+          "kind": "deadline",
+          "period_number": 15,
+          "period_unit": "days",
+          "direction": "after",
+          "anchor": "notice_received",
+          "anchor_text": "material breach not cured within 15 days",
+          "stated_in_text": true,
+          "clear_days": false,
+          "explicit_date": null
+        },
+        "recurrence": "per_event",
+        "recurrence_note": "Applies per occurrence of material breach.",
+        "source_clause_type": "Termination",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Clause 6 – Termination",
+            "quote": "or immediately for material breach not cured within 15 days",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "extraction_notes": "Seven obligations extracted from a Services Agreement between Acme Supplies Ltd (Supplier) and Aegis Test Pvt Ltd (Customer), dated 1 January 2027. All obligations have clear owners and determinable deadlines or durations. Clauses 4 (Limitation of Liability) and 7 (Governing Law) contain no actionable obligations and were excluded. The cure-period obligation in Clause 6 is conditional on a material breach occurring but carries an explicit 15-day period, so it is classified as a deadline with per_event recurrence."
+  }
+}

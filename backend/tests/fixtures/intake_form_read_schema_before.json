@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "one or two sentences: what the requester actually wants"
+    },
+    "mismatches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "form_says": {
+            "type": "string"
+          },
+          "text_says": {
+            "type": "string",
+            "description": "what the description or attachment states instead"
+          },
+          "same": {
+            "type": "boolean",
+            "description": "true if the two actually agree"
+          }
+        },
+        "required": [
+          "field",
+          "form_says",
+          "text_says",
+          "same"
+        ]
+      },
+      "description": "facts the description or an attachment states differently from the form (type, value, date, party). Usually empty."
+    },
+    "bespoke_asks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "asks the standard template will not cover, e.g. counterparty paper, custom terms"
+    },
+    "negotiation_points": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "terms the requester or an attachment signals will be negotiated"
+    }
+  },
+  "required": [
+    "summary",
+    "mismatches",
+    "bespoke_asks",
+    "negotiation_points"
+  ]
+}

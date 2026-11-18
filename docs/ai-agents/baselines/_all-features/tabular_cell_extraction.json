@@ -1,0 +1,67 @@
+{
+  "feature": "tabular_cell_extraction",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+    "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+    "not_found": false,
+    "verdict": null,
+    "confidence": "high",
+    "citations": [
+      {
+        "label": "Section 7 – Governing Law",
+        "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "tabular_cell_extraction",
+      "prompt_version": "1.1.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1779,
+      "completion_tokens": 180,
+      "total_tokens": 1959,
+      "latency_ms": 2733.689245003916,
+      "validated_output": {
+        "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+        "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+        "not_found": false,
+        "verdict": null,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 7 – Governing Law",
+            "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+    "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+    "not_found": false,
+    "verdict": null,
+    "confidence": "high",
+    "citations": [
+      {
+        "label": "Section 7 – Governing Law",
+        "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  }
+}

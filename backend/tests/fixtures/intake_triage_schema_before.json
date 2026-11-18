@@ -1,0 +1,119 @@
+{
+  "type": "object",
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "NDA",
+        "Litigation",
+        "Privacy",
+        "Trademark",
+        "Vendor",
+        "Contract Review",
+        "Policy/FAQ",
+        "General"
+      ],
+      "description": "the single best-fit matter type, judged by meaning not keywords. NDA: confidentiality agreements. Vendor: buying goods/services from a supplier on our paper. Contract Review: any other agreement to draft or review (MSA, SoW, amendment, renewal, counterparty paper). Privacy: DPAs, data incidents, privacy questions. Litigation: disputes, claims, notices of breach, court papers. Trademark: marks and brand. Policy/FAQ: a question about a policy or how to do something. General: anything else"
+    },
+    "sub_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "the specific flavour, e.g. 'custom NDA (no template)', 'standard mutual NDA', 'MSA', 'DPA'"
+    },
+    "complexity": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ],
+      "description": "judge from the ACTUAL request — deal value, bespoke terms, multi-party, cross-border all raise it; do not default by matter type"
+    },
+    "risk": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "Low",
+        "Medium",
+        "High"
+      ],
+      "description": "how time-critical the requester makes it sound"
+    },
+    "business_unit": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "the requesting business unit / department if stated or inferable"
+    },
+    "estimated_value": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "the deal/contract value as stated (in its own currency, do not convert), else null"
+    },
+    "jurisdiction": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "governing law / country if stated"
+    },
+    "key_asks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "what the requester actually wants, in plain terms (e.g. 'draft a custom NDA, do not use the standard template')"
+    },
+    "missing_info": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "CRITICAL facts this matter type needs to be drafted or handled properly that the request does NOT provide — e.g. 'counterparty legal name', 'what the agreement is for'. Only facts WITHOUT which no one could start the work; anything negotiable or with a standard default (term, governing law, value) is NOT missing. Usually empty."
+    },
+    "recommended_workflow_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "id of the single best-fit workflow from the catalog, or null if none fits or a human should route it"
+    },
+    "workflow_reasoning": {
+      "type": "string",
+      "description": "one or two sentences on the workflow pick"
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0..1 — honest confidence in this whole read"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "one or two sentences summarising your understanding of the request"
+    },
+    "needs_human": {
+      "type": "boolean",
+      "description": "true if ambiguous or high-stakes enough that a human should confirm the routing"
+    }
+  },
+  "required": [
+    "category",
+    "complexity",
+    "risk",
+    "urgency",
+    "confidence",
+    "reasoning",
+    "needs_human"
+  ]
+}

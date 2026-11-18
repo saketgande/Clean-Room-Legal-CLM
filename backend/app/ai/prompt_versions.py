@@ -656,27 +656,6 @@ Identify only risks explicitly supported by contract language:
 Do not infer risk based solely on absent sections.
 
 ====================================================
-OUTPUT FORMAT
-====================================================
-
-Return ONLY valid JSON.
-
-{
-  "metadata": {},
-  "obligations": [],
-  "risk_flags": [],
-  "notes": [],
-  "extraction_confidence": {
-      "overall": "HIGH | MEDIUM | LOW",
-      "reason": ""
-  }
-}
-
-Do not include markdown.
-Do not include explanatory text.
-Do not include analysis outside the JSON response.
-
-====================================================
 WHAT YOU ACTUALLY RETURN (overrides everything above)
 ====================================================
 
@@ -860,29 +839,7 @@ If the supplied text appears truncated, incomplete, OCR-damaged, or missing page
 </PARTIAL_TEXT>
 
 <OUTPUT>
-
-{
-  "clauses": [
-    {
-      "clause_type": "",
-      "clause_subtype": "",
-      "clause_heading": "",
-      "section_number": "",
-      "source_text": "",
-      "concise_summary": "",
-      "materially_relevant_terms": [],
-      "referenced_sections": [],
-      "character_start_offset": null,
-      "character_end_offset": null,
-      "citation": "",
-      "quality_flags": []
-    }
-  ],
-  "extraction_notes": [],
-  "document_quality_flags": [],
-  "partial_document": false
-}
-
+Answer through the tool you are given; its fields describe each value. Put anything unusual, and any sign the text is partial, in extraction_notes.
 </OUTPUT>"""
 
 
@@ -952,22 +909,7 @@ Exclude:
 </WHAT_COUNTS_AS_AN_OBLIGATION>
 
 <PER_OBLIGATION_FIELDS>
-For each obligation return:
-- obligation_id or sequence number;
-- responsible_party exactly as stated;
-- beneficiary or receiving party when stated;
-- description in concise plain language;
-- obligation_type;
-- trigger_type: date_certain, event_driven, recurring, conditional, or ongoing;
-- trigger_event or condition;
-- due_date in YYYY-MM-DD when explicitly stated or validly calculable;
-- due_period with numeric value and unit when stated;
-- recurrence or frequency;
-- source_clause_type;
-- section_number or heading if available;
-- verbatim citation;
-- confidence;
-- flags.
+Answer through the tool you are given; its fields describe each value. Give timing as the contract words it (the period and what it counts from), never as a date you worked out.
 </PER_OBLIGATION_FIELDS>
 
 <DATE_AND_OWNER_RULES>
@@ -983,12 +925,7 @@ Every obligation must include an exact supporting quotation. If the document is 
 </EVIDENCE_AND_COMPLETENESS>
 
 <OUTPUT>
-Return only structured output:
-{
-  "obligations": [],
-  "extraction_notes": [],
-  "partial_document": false
-}
+Answer through the tool you are given.
 
 If no clear obligations exist, return an empty obligations list and explain why in extraction_notes."""
 
@@ -1008,22 +945,7 @@ Extract the contract's expiration date, renewal mechanism, renewal term, renewal
 </TASK>
 
 <FIELDS>
-Return:
-- effective_date;
-- initial_term;
-- expiration_date;
-- auto_renews;
-- renewal_type: automatic, manual, evergreen, none, or not_found;
-- renewal_term;
-- notice_action: non_renewal, renewal, termination, or other;
-- notice_period_days;
-- notice_period_text;
-- renewal_or_termination_notice_date;
-- termination_rights_summary;
-- citations for each populated date or renewal field;
-- needs_review;
-- confidence;
-- notes.
+Answer through the tool you are given; its fields describe each value. Give the term and notice periods as the contract words them; code counts the dates.
 </FIELDS>
 
 <DATE_RULES>
@@ -1104,20 +1026,7 @@ Do not use medium confidence to justify an unsupported claim.
 </CONFIDENCE>
 
 <OUTPUT>
-Return only structured output:
-{
-  "answer": "",
-  "claims": [
-    {
-      "claim": "",
-      "contract_name": "",
-      "source_label": "",
-      "quote": ""
-    }
-  ],
-  "limitations": [],
-  "confidence": "high|medium|low"
-}
+Answer through the tool you are given; its fields describe each value. Support each contract-specific claim with a citation.
 
 Do not add global meta-disclaimers that deny access to the supplied context. Be concise, specific, and evidence-led."""
 
@@ -1267,18 +1176,7 @@ Draft actual replacement or insertion language ready to sit in the contract. Do 
 </SUGGESTED_FIX>
 
 <PER_DEVIATION>
-Return:
-- rule_index exactly as supplied;
-- clause_type;
-- deviation_type;
-- severity;
-- issue: one plain sentence stating business impact and whether senior-counsel or approval escalation is required;
-- original_text;
-- suggested_fix;
-- citation quote;
-- confidence;
-- flags;
-- position: "preferred" if, having worked it through, the wording meets the rule's preferred position or is better for the organization (the item is then discarded, whatever the rule's approval flag), "fallback" if it sits at the fallback position, "outside" if it is worse than the fallback, has prohibited language, or lacks required wording.
+Answer through the tool you are given; its fields describe each value. issue is one plain sentence stating business impact and whether senior-counsel or approval escalation is required. position is decided after working the item through (see its description).
 </PER_DEVIATION>
 
 <RULES>
@@ -1290,14 +1188,7 @@ Return:
 </RULES>
 
 <OUTPUT>
-Return only structured output:
-{
-  "contract_type": "",
-  "organization_role": "",
-  "overall_assessment": "",
-  "deviations": [],
-  "review_notes": []
-}
+Answer through the tool you are given.
 
 If no material deviation is found, return an empty deviations array. Never invent rules, facts, quotations, or clause text."""
 
@@ -1962,61 +1853,7 @@ Before returning the output, verify that:
 
 Return only valid structured output.
 
-If no external schema is supplied, use:
-
-{
-  "playbook_name": "",
-  "source_assessment": {
-    "source_type": "existing_playbook|approved_template|clause_library|approval_matrix|negotiation_guidance|executed_exemplar|draft_contract|counterparty_paper|mixed_source|unknown",
-    "source_authority": "authoritative|indicative|negotiated_example|counterparty_position|unknown",
-    "inferred_contract_type": "",
-    "organization_name": null,
-    "organization_role": null,
-    "counterparty_role": null,
-    "document_part": null,
-    "total_document_parts": null,
-    "document_complete": false,
-    "confidence": "high|medium|low",
-    "notes": []
-  },
-  "rules": [
-    {
-      "rule_id": "",
-      "clause_type": "",
-      "clause_subtype": null,
-      "rule_type": "standard_position|fallback_position|prohibited_position|required_protection|observed_position",
-      "position_basis": "explicit_standard|explicit_fallback|observed_position|synthesized_position|not_established",
-      "applies_to": "organization|customer|supplier|licensor|licensee|both_parties|unclear",
-      "preferred_position": null,
-      "fallback_position": null,
-      "prohibited_language": [],
-      "required_language": [],
-      "risk_level": "low|medium|high|critical|undetermined",
-      "risk_basis": "",
-      "rationale": "",
-      "source_evidence": [
-        {
-          "quote": "",
-          "section_reference": null,
-          "document_part": null,
-          "character_start_offset": null,
-          "character_end_offset": null
-        }
-      ],
-      "sample_clause": null,
-      "negotiation_guidance": null,
-      "linked_clause_types": [],
-      "approval_required": null,
-      "approval_authority": null,
-      "confidence": "high|medium|low",
-      "merge_candidate_rule_id": null,
-      "flags": []
-    }
-  ],
-  "unsupported_or_deferred_topics": [],
-  "conflicts": [],
-  "extraction_notes": []
-}
+Answer through the tool you are given; its fields describe each value.
 
 Return an empty rules array when no reliable, materially significant, source-supported position can be established.
 
@@ -2090,13 +1927,7 @@ For every rule return:
 <OUTPUT>
 Always return the COMPLETE current rule set after applying the request. This is a full replacement, never a delta.
 
-Return only structured output:
-{
-  "playbook_name": "",
-  "reply": "",
-  "rules": [],
-  "notes": []
-}
+Answer through the tool you are given.
 
 The reply must be 1-3 sentences stating what changed or directly answering the question. Suggest a concise playbook name. Do not include markdown or commentary outside the structured output."""
 
@@ -2145,23 +1976,7 @@ Do not recommend a change merely because a rule generated many deviations. Disti
 </RECOMMENDATION_REQUIREMENTS>
 
 <OUTPUT>
-Return only structured output:
-{
-  "summary": "",
-  "recommendations": [
-    {
-      "rule_id": "",
-      "change_type": "preferred_position|fallback_position|prohibited_language|required_language|risk_level|approval_required|other",
-      "current_position": "",
-      "proposed_position": "",
-      "risk_direction": "more_protected|less_protected|neutral",
-      "evidence_counts": {},
-      "rationale": "",
-      "confidence": "HIGH|MEDIUM|LOW"
-    }
-  ],
-  "insufficient_evidence_rule_ids": []
-}
+Answer through the tool you are given; its fields describe each value.
 
 Prefer a small number of high-confidence recommendations. Never present a recommendation as already adopted."""
 
@@ -2333,13 +2148,7 @@ Copy every citation and original_text verbatim from the supplied contract. If th
 </EVIDENCE>
 
 <OUTPUT>
-Return only structured output:
-{
-  "summary": "",
-  "edits": [],
-  "unresolved_items": [],
-  "assumptions": []
-}
+Answer through the tool you are given; its fields describe each value. Put anything you could not resolve, and any assumption, in the summary.
 
 Do not include markdown or explanations outside the structured output."""
 
@@ -2408,23 +2217,7 @@ Adapt coverage to the contract type; do not force irrelevant clauses into the do
 </DRAFTING_RULES>
 
 <OUTPUT>
-Return only structured output:
-{
-  "title": "",
-  "document_type": "",
-  "sections": [
-    {
-      "order": 1,
-      "heading": "",
-      "body": "",
-      "subsections": []
-    }
-  ],
-  "schedules": [],
-  "signature_blocks": [],
-  "assumptions": [],
-  "missing_inputs": []
-}
+Answer through the tool you are given; its fields describe each value. Put schedules and signature blocks in the sections, and each missing input in assumptions.
 
 Sections must be in execution-ready order. Every included section must contain substantive body text."""
 
@@ -2462,18 +2255,7 @@ Provide a short quotation copied verbatim from the contract that directly suppor
 </CITATION>
 
 <OUTPUT>
-Return only structured output:
-{
-  "answer": "",
-  "reasoning": "",
-  "citation": {
-    "quote": "",
-    "section": ""
-  },
-  "not_found": false,
-  "confidence": "HIGH|MEDIUM|LOW",
-  "flags": []
-}
+Answer through the tool you are given; its fields describe each value. For a yes/no question set verdict from the contract text, never from your own prose.
 
 When not_found=true, leave answer and citation quote empty and state the specific gap briefly in reasoning. Use low confidence for partial, ambiguous, conflicting, or OCR-damaged text."""
 
@@ -2511,22 +2293,7 @@ Every found answer must contain an exact quotation that directly supports it and
 </CITATIONS>
 
 <OUTPUT>
-Return only structured output:
-{
-  "contract_name": "",
-  "answers": [
-    {
-      "column_id": "",
-      "answer": "",
-      "reasoning": "",
-      "citation": {"quote": "", "section": ""},
-      "not_found": false,
-      "confidence": "HIGH|MEDIUM|LOW",
-      "flags": []
-    }
-  ],
-  "row_notes": []
-}
+Answer through the tool you are given; its fields describe each value. For a yes/no question set verdict from the contract text, never from your own prose.
 
 A found answer requires supporting text. When not_found=true, leave answer and citation quote empty. Never skip a question."""
 
@@ -2562,14 +2329,7 @@ Interpret the user's question, identify the relevant rows and columns, and answe
 <OUTPUT_STYLE>
 Give the bottom line first. Use a compact table when comparing multiple contracts; otherwise answer in concise prose. Include a limitations sentence only when missing or ambiguous cells materially affect the answer.
 
-Return only:
-{
-  "answer": "",
-  "supporting_cells": [
-    {"contract": "", "column": "", "citation": ""}
-  ],
-  "limitations": []
-}"""
+Answer through the tool you are given; its fields describe each value."""
 
 
 # ===========================================================================
@@ -2617,21 +2377,7 @@ Determine notification_required and notification_deadline_hours only when the su
 </NOTIFICATION>
 
 <FIELDS>
-Return:
-- incident_status: suspected or confirmed;
-- severity;
-- affected_data_categories using plain terms drawn only from the input;
-- estimated_affected_count as stated, or "unknown — under investigation" when the input expressly indicates uncertainty;
-- affected_jurisdictions when stated;
-- unauthorized_recipient or threat actor when stated;
-- containment_status;
-- notification_required: true, false, or null;
-- notification_deadline_hours;
-- notification_basis;
-- recommended_immediate_actions: 2-5 incident-specific steps;
-- rationale: 1-3 sentences tied to data type, scale, cause, access, and harm;
-- missing_critical_facts;
-- confidence from 0.0 to 1.0.
+Answer through the tool you are given; its fields describe each value. Name any missing critical fact, the containment status and the notification basis in the rationale.
 </FIELDS>
 
 <IMMEDIATE_ACTIONS>
@@ -2692,17 +2438,8 @@ Do not invent a workflow or force a weak match merely to provide an ID.
 </HUMAN_REVIEW>
 
 <OUTPUT>
-Return only structured output:
-{
-  "flow_id": null,
-  "needs_human": false,
-  "reason": "",
-  "matched_factors": [],
-  "missing_routing_facts": [],
-  "confidence": 0.0
-}
-
-Keep reason concise and grounded in the request and catalog. Confidence reflects certainty in the workflow match, not certainty about the underlying legal facts."""
+Answer through the tool you are given; its fields describe each value. Keep the reasoning concise and grounded in the request and catalog. Confidence reflects certainty in the workflow match, not certainty about the underlying legal facts.
+</OUTPUT>"""
 
 
 # ---------------------------------------------------------------------------
@@ -2774,15 +2511,11 @@ form alone does not show.
 </task>
 
 <what_to_return>
-summary: what the requester actually wants, in one or two plain sentences.
-mismatches: only real contradictions — the description or an attachment states
+Answer through the tool you are given; its fields describe each value.
+Mismatches are only real contradictions: the description or an attachment states
 a different agreement type, value, date or party than the form. Quote both sides
 briefly. Things that agree, or that the text simply does not mention, are NOT
 mismatches; an empty list is the normal answer.
-bespoke_asks: anything the standard template will not cover — the counterparty's
-own paper, custom terms, unusual structures.
-negotiation_points: terms the requester or an attachment signals will be pushed
-on (liability, payment, IP, exclusivity, termination).
 Leave a list empty when there is nothing real to say. Never invent facts.
 </what_to_return>"""
 
@@ -2802,21 +2535,7 @@ Extract the matter's key litigation and response-management facts, identify urge
 </TASK>
 
 <FIELDS>
-Return:
-- matter_type and sub_type;
-- matter_status: threatened, pre-action, filed, served, investigation, regulatory, or unknown;
-- key_parties and their roles;
-- forum, court, tribunal, agency, or jurisdiction when stated;
-- claims or allegations as described, without adopting them as true;
-- statutory, court, contractual, or requested response deadlines;
-- legal_hold_required: true, false, or null;
-- outside_counsel_likely_needed: true, false, or null;
-- settlement_posture: none, proposed, likely, or unknown;
-- immediate_actions;
-- flow_id;
-- needs_human;
-- assessment_confidence;
-- flow_confidence.
+Answer through the tool you are given; its fields describe each value.
 </FIELDS>
 
 <DEADLINES>
@@ -2900,17 +2619,8 @@ When is_clm_related=false, category must be null.
 </RULES>
 
 <OUTPUT>
-Return only structured output:
-{
-  "is_clm_related": false,
-  "category": null,
-  "reason": "",
-  "confidence": 0.0,
-  "signals": [],
-  "needs_human": false
-}
-
-Use high confidence only when the message clearly states its purpose. Set needs_human=true only when ambiguity materially prevents reliable classification."""
+Answer through the tool you are given; its fields describe each value. Use high confidence only when the message clearly states its purpose.
+</OUTPUT>"""
 
 
 # ===========================================================================
@@ -2932,29 +2642,7 @@ Read the entire notice and extract only facts stated in the document. Preserve a
 </TASK>
 
 <CORE_FIELDS>
-Return:
-- notice_direction: received, sent, or unclear;
-- notice_date;
-- date_received when stated;
-- response_due_date;
-- response_period_text;
-- sender_name and sender_role;
-- sender_representative or law firm;
-- recipient_name;
-- counterparty_name;
-- counterparty_ref;
-- notice_type;
-- subject;
-- contract or matter reference;
-- amount_demanded with currency when stated;
-- statutes or contract clauses expressly cited;
-- requested_action or remedy;
-- service_method and service_address when stated;
-- key_allegations;
-- confidence;
-- needs_review;
-- notes;
-- citations.
+Answer through the tool you are given; its fields describe each value.
 </CORE_FIELDS>
 
 <RESPONSE_DUE_DATE>
@@ -3146,17 +2834,8 @@ These are decision guides, not presumptions. Do not manufacture a factor that th
 </CONFIDENCE>
 
 <OUTPUT>
-Return only structured output:
-{
-  "recommendation": "renew|renegotiate|terminate",
-  "rationale": "",
-  "key_facts": [],
-  "confidence": "HIGH|MEDIUM|LOW",
-  "critical_missing_fact": null,
-  "deadline": null
-}
-
-Do not include markdown, multiple recommendations, or analysis outside the structured output."""
+Answer through the tool you are given; its fields describe each value. Include the key fact or facts and any explicitly supplied deadline in the rationale.
+</OUTPUT>"""
 
 # Runs: playbooks.service.PlaybooksService._generate_missing_rules ("Expand playbook").
 _PLAYBOOK_EXPAND = (
@@ -3206,27 +2885,9 @@ Use application number/date lines, class headings, proprietor blocks, used-since
 </TRANSCRIPTION_RULES>
 
 <OUTPUT>
-Return only valid structured output:
-{
-  "entries": [
-    {
-      "product_name": null,
-      "mark_type": "word|device|combination",
-      "tm_id": null,
-      "tm_date": null,
-      "address": null,
-      "used_since": null,
-      "proposed_to_be_used": false,
-      "jurisdiction": null,
-      "goods_services": null,
-      "has_product_image": false,
-      "quality_flags": []
-    }
-  ],
-  "page_quality_notes": []
-}
+Answer through the tool you are given; its fields describe each value.
 
-If no entry can be reliably identified, return an empty entries array and explain the image-quality issue. Do not guess."""
+If no entry can be reliably identified, return an empty entries array. Do not guess."""
 
 # Runs: documents.hierarchy.arrange — settles the clause-tree placements the
 # numbering rules left undecided. Moved byte-for-byte from docstudio/hierarchy.py

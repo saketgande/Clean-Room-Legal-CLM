@@ -174,30 +174,6 @@ STANDARD_PLAYBOOK_CLAUSES = [
     "dispute_resolution",
 ]
 
-_EXPAND_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "rules": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "clause_type": {"type": "string"},
-                    "preferred_position": {"type": "string"},
-                    "fallback_position": {"type": "string"},
-                    "prohibited_language": {"type": "string"},
-                    "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
-                    "rationale": {"type": "string"},
-                    "approval_required": {"type": "boolean"},
-                },
-                "required": ["clause_type", "preferred_position", "risk_level", "rationale"],
-            },
-        }
-    },
-    "required": ["rules"],
-}
-
-
 def _rules_from_templates(missing: list[str]) -> list[dict[str, Any]]:
     """Deterministic fallback for the standard clauses, used under mock mode or
     an API failure so Expand always returns a usable draft."""
@@ -1235,12 +1211,11 @@ class PlaybooksService:
                 "playbook_expand",
                 ctx=AICallContext(org_id=org_id, resource=("playbook", playbook.id)),
                 user_prompt=user,
-                input_schema=_EXPAND_SCHEMA,
                 log_input={"playbook_id": playbook.id, "missing": len(missing), "covered": len(covered)},
             )
         except Exception:
             return _rules_from_templates(missing), False
-        rules = result.data.get("rules")
+        rules = result.data.model_dump(mode="json", exclude_none=True)["rules"]
         if not isinstance(rules, list) or not rules:
             return _rules_from_templates(missing), False
         # Keep only requested clause types; drop anything malformed.

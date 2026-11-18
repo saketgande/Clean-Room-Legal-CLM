@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "renew",
+        "renegotiate",
+        "terminate"
+      ],
+      "description": "The single recommended action."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "One or two sentences, specific to the facts given \u2014 no boilerplate."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    }
+  },
+  "required": [
+    "decision",
+    "rationale",
+    "confidence"
+  ]
+}

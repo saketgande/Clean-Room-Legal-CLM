@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "properties": {
+    "matter_type": {
+      "type": "string"
+    },
+    "statutory_deadlines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what"
+        ]
+      }
+    },
+    "legal_hold_required": {
+      "type": "boolean"
+    },
+    "outside_counsel_likely": {
+      "type": "boolean"
+    },
+    "settlement_posture": {
+      "type": "string",
+      "enum": [
+        "none",
+        "proposed",
+        "likely"
+      ]
+    },
+    "key_parties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "assessment_confidence": {
+      "type": "number",
+      "description": "0-1: confidence in the EXTRACTED FACTS above (matter type, deadlines, hold/counsel calls), by how much concrete detail the request gives — distinct from flow_confidence, which is only about the workflow pick."
+    },
+    "flow_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "best-fit flow id from the catalog"
+    },
+    "flow_confidence": {
+      "type": "number"
+    },
+    "flow_reasoning": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "matter_type",
+    "legal_hold_required",
+    "outside_counsel_likely",
+    "settlement_posture",
+    "summary",
+    "assessment_confidence",
+    "flow_id",
+    "flow_confidence",
+    "flow_reasoning"
+  ]
+}

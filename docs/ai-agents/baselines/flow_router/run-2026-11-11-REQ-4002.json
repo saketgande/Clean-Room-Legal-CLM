@@ -1,0 +1,23 @@
+{
+    "feature": "flow_router",
+    "run": "2026-11-11, real call, old hand-written schema (before migration)",
+    "request": "REQ-4002 Globex MSA review (free text)",
+    "model": "claude-sonnet-4-6",
+    "prompt_tokens": 4543,
+    "completion_tokens": 343,
+    "latency_ms": 8282,
+    "status": "succeeded",
+    "stop_reason": "tool_use",
+    "model_output": {
+        "flow_id": "ee2faae9-cebc-435e-98a1-7c5d5c5de12f",
+        "confidence": 0.78,
+        "reasoning": "The request is a review of a Master Services Agreement (MSA) on the counterparty's paper with multiple non-standard, high-risk clauses (uncapped liability, unilateral termination, broad IP assignment). The MSA workflow covers the full MSA lifecycle including legal review, quality review, privacy review, and counterparty negotiation \u2014 which aligns well with the need for a careful redline and negotiation. The contract value (250,000 INR) is below the high-value MSA threshold (5,000,000 INR), so the high-value MSA flow does not apply. The generic MSA flow is the best specific match.",
+        "needs_human": true,
+        "alternatives": [
+            {
+                "flow_id": "48f7b9c1-c77c-4f30-9865-444d7549f927",
+                "why": "The Contract Approval Ladder is the default commercial contract flow and could cover this MSA review, but it is less specific than the dedicated MSA workflow."
+            }
+        ]
+    }
+}

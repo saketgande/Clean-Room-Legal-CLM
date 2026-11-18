@@ -37,6 +37,7 @@ def flow_catalog(db: Session, org_id: str) -> list[dict]:
     """The enabled flows this org can route to — the model's only menu."""
     from sqlalchemy import select
 
+    from app.intake.service import TRADEMARK_MARKER_FIELDS
     from app.workflows.models import Workflow
 
     flows = db.scalars(
@@ -44,6 +45,10 @@ def flow_catalog(db: Session, org_id: str) -> list[dict]:
     ).all()
     out = []
     for f in flows:
+        # The trademark clearance and response workflows are started by the Trademarks module, for a case it
+        # has opened, never chosen for a request by the AI.
+        if (f.criteria or {}).get("field") in TRADEMARK_MARKER_FIELDS:
+            continue
         steps = [s.get("name") or s.get("type") for s in (f.steps or [])]
         out.append({
             "id": f.id, "name": f.name, "description": f.description or "",
@@ -70,23 +75,6 @@ def _baseline(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict:
     return {"flow_id": flow.id, "flow_name": flow.name, "confidence": conf,
             "reasoning": why, "alternatives": [], "needs_human": conf < _CONFIDENT,
             "source": "deterministic", "steps": entry["steps"] if entry else []}
-
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "flow_id": {"type": ["string", "null"],
-                    "description": "id of the single best-fit flow from the catalog, or null if none fits"},
-        "confidence": {"type": "number", "description": "0..1 confidence in the pick"},
-        "reasoning": {"type": "string", "description": "one or two sentences, plain English"},
-        "alternatives": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"flow_id": {"type": "string"}, "why": {"type": "string"}},
-            "required": ["flow_id", "why"]}},
-        "needs_human": {"type": "boolean"},
-    },
-    "required": ["flow_id", "confidence", "reasoning", "needs_human"],
-}
 
 
 def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
@@ -157,9 +145,9 @@ def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> 
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "flow_router", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
-            user_prompt=user_prompt, input_schema=_SCHEMA,
+            user_prompt=user_prompt,
             log_input={"user_prompt": user_prompt},
-        ).data
+        ).data.model_dump(mode="json")  # the shape is app.ai.output_format.flow_router.FlowRouterOutput
 
         fid = data.get("flow_id")
         if fid not in ids:  # ungrounded / null → hand to a human, keep baseline pick visible

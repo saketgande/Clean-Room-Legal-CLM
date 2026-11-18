@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "product_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mark_type": {
+            "type": "string",
+            "enum": [
+              "word",
+              "device",
+              "combination",
+              "sound",
+              "other"
+            ]
+          },
+          "tm_id": {
+            "type": "string"
+          },
+          "tm_date": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "used_since": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposed_to_be_used": {
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goods_services": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_product_image": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "product_name",
+          "mark_type",
+          "tm_id",
+          "tm_date",
+          "address",
+          "used_since",
+          "proposed_to_be_used",
+          "jurisdiction",
+          "goods_services",
+          "has_product_image"
+        ]
+      }
+    }
+  },
+  "required": [
+    "entries"
+  ]
+}

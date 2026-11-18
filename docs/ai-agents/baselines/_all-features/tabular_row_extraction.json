@@ -1,0 +1,133 @@
+{
+  "feature": "tabular_row_extraction",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "answers": [
+      {
+        "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+        "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+        "not_found": false,
+        "verdict": null,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 7 – Governing Law",
+            "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "column_id": "c1"
+      },
+      {
+        "answer": "Yes, the contract renews automatically for successive 12-month terms unless either party provides 60 days' written notice of non-renewal before the end of the current term.",
+        "reasoning": "Section 2 (Term and Renewal) expressly provides for automatic renewal for further 12-month periods, subject to a 60-day written notice of non-renewal.",
+        "not_found": false,
+        "verdict": "yes",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 2 – Term and Renewal",
+            "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "column_id": "c2"
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "tabular_row_extraction",
+      "prompt_version": "1.1.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1974,
+      "completion_tokens": 381,
+      "total_tokens": 2355,
+      "latency_ms": 4870.444546999352,
+      "validated_output": {
+        "answers": [
+          {
+            "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+            "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+            "not_found": false,
+            "verdict": null,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 7 – Governing Law",
+                "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ],
+            "column_id": "c1"
+          },
+          {
+            "answer": "Yes, the contract renews automatically for successive 12-month terms unless either party provides 60 days' written notice of non-renewal before the end of the current term.",
+            "reasoning": "Section 2 (Term and Renewal) expressly provides for automatic renewal for further 12-month periods, subject to a 60-day written notice of non-renewal.",
+            "not_found": false,
+            "verdict": "yes",
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 2 – Term and Renewal",
+                "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+                "page_number": null,
+                "start_char": null,
+                "end_char": null
+              }
+            ],
+            "column_id": "c2"
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "answers": [
+      {
+        "answer": "The laws of India, with exclusive jurisdiction in the courts of Mumbai.",
+        "reasoning": "Section 7 (Governing Law) explicitly states that the Agreement is governed by the laws of India and that the courts of Mumbai have exclusive jurisdiction.",
+        "not_found": false,
+        "verdict": null,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 7 – Governing Law",
+            "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "column_id": "c1"
+      },
+      {
+        "answer": "Yes, the contract renews automatically for successive 12-month terms unless either party provides 60 days' written notice of non-renewal before the end of the current term.",
+        "reasoning": "Section 2 (Term and Renewal) expressly provides for automatic renewal for further 12-month periods, subject to a 60-day written notice of non-renewal.",
+        "not_found": false,
+        "verdict": "yes",
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 2 – Term and Renewal",
+            "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "column_id": "c2"
+      }
+    ]
+  }
+}

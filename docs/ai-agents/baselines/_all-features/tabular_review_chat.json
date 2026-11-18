@@ -1,0 +1,76 @@
+{
+  "feature": "tabular_review_chat",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "answer": "The **Acme MSA** has the longer notice period at **60 days**, compared to the Beta NDA's 30-day notice period.",
+    "citations": [
+      {
+        "label": "Acme MSA – Notice period",
+        "quote": "60 days' written notice",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Beta NDA – Notice period",
+        "quote": "30 days' written notice",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "tabular_review_chat",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1281,
+      "completion_tokens": 129,
+      "total_tokens": 1410,
+      "latency_ms": 2229.0428830019664,
+      "validated_output": {
+        "answer": "The **Acme MSA** has the longer notice period at **60 days**, compared to the Beta NDA's 30-day notice period.",
+        "citations": [
+          {
+            "label": "Acme MSA – Notice period",
+            "quote": "60 days' written notice",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "Beta NDA – Notice period",
+            "quote": "30 days' written notice",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "answer": "The **Acme MSA** has the longer notice period at **60 days**, compared to the Beta NDA's 30-day notice period.",
+    "citations": [
+      {
+        "label": "Acme MSA – Notice period",
+        "quote": "60 days' written notice",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Beta NDA – Notice period",
+        "quote": "30 days' written notice",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  }
+}

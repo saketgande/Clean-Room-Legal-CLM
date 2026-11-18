@@ -1,0 +1,82 @@
+{
+  "feature": "contract_edit_suggestions",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "edits": [
+      {
+        "edit_type": "replacement",
+        "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+        "replacement_text": "Each party's total liability to the other under this Agreement shall not exceed an amount equal to two times (2x) the annual fees payable under this Agreement (being INR 24,00,000). Neither party shall be liable to the other for any indirect, consequential, special, or punitive loss or damage.",
+        "rationale": "Clause 4 currently caps only the Supplier's (Acme Supplies Ltd's) liability at fees paid in the preceding 12 months, leaving the Customer (Aegis Test Pvt Ltd) exposed to unlimited liability — an asymmetry that is commercially unjustifiable in a balanced services relationship at INR 12,00,000 per year. The instruction requires the cap to be mutual and set at 2x annual fees (INR 24,00,000). The replacement achieves both: it binds both parties symmetrically and anchors the cap to the fixed annual fee figure already stated in Clause 1, so there is no ambiguity about the reference amount. The indirect-loss exclusion is retained and extended to cover both parties explicitly. Fallback if Acme Supplies Ltd resists full mutuality: accept a mutual cap but at 1.5x annual fees (INR 18,00,000) for the Supplier and 2x (INR 24,00,000) for the Customer, preserving some asymmetry in the Customer's favour.",
+        "risk_level": "high",
+        "citations": [
+          {
+            "label": null,
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "summary": "One edit is proposed to Clause 4 (Limitation of Liability). The current clause caps only Acme Supplies Ltd's liability (at fees paid in the preceding 12 months) while leaving Aegis Test Pvt Ltd's liability uncapped — a significant imbalance at an annual contract value of INR 12,00,000. The edit makes the cap mutual and raises it to 2x annual fees (INR 24,00,000) for both parties, in line with the instruction. The annual fee figure (INR 12,00,000) is taken directly from Clause 1, so no external facts need to be supplied. No other edits are required to implement the instruction."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "contract_edit_suggestions",
+      "prompt_version": "1.0.1",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 2311,
+      "completion_tokens": 654,
+      "total_tokens": 2965,
+      "latency_ms": 12553.594614000758,
+      "validated_output": {
+        "edits": [
+          {
+            "edit_type": "replacement",
+            "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "replacement_text": "Each party's total liability to the other under this Agreement shall not exceed an amount equal to two times (2x) the annual fees payable under this Agreement (being INR 24,00,000). Neither party shall be liable to the other for any indirect, consequential, special, or punitive loss or damage.",
+            "rationale": "Clause 4 currently caps only the Supplier's (Acme Supplies Ltd's) liability at fees paid in the preceding 12 months, leaving the Customer (Aegis Test Pvt Ltd) exposed to unlimited liability — an asymmetry that is commercially unjustifiable in a balanced services relationship at INR 12,00,000 per year. The instruction requires the cap to be mutual and set at 2x annual fees (INR 24,00,000). The replacement achieves both: it binds both parties symmetrically and anchors the cap to the fixed annual fee figure already stated in Clause 1, so there is no ambiguity about the reference amount. The indirect-loss exclusion is retained and extended to cover both parties explicitly. Fallback if Acme Supplies Ltd resists full mutuality: accept a mutual cap but at 1.5x annual fees (INR 18,00,000) for the Supplier and 2x (INR 24,00,000) for the Customer, preserving some asymmetry in the Customer's favour.",
+            "risk_level": "high",
+            "citations": [
+              {
+                "label": null,
+                "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          }
+        ],
+        "summary": "One edit is proposed to Clause 4 (Limitation of Liability). The current clause caps only Acme Supplies Ltd's liability (at fees paid in the preceding 12 months) while leaving Aegis Test Pvt Ltd's liability uncapped — a significant imbalance at an annual contract value of INR 12,00,000. The edit makes the cap mutual and raises it to 2x annual fees (INR 24,00,000) for both parties, in line with the instruction. The annual fee figure (INR 12,00,000) is taken directly from Clause 1, so no external facts need to be supplied. No other edits are required to implement the instruction."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "edits": [
+      {
+        "edit_type": "replacement",
+        "original_text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+        "replacement_text": "Each party's total liability to the other under this Agreement shall not exceed an amount equal to two times (2x) the annual fees payable under this Agreement (being INR 24,00,000). Neither party shall be liable to the other for any indirect, consequential, special, or punitive loss or damage.",
+        "rationale": "Clause 4 currently caps only the Supplier's (Acme Supplies Ltd's) liability at fees paid in the preceding 12 months, leaving the Customer (Aegis Test Pvt Ltd) exposed to unlimited liability — an asymmetry that is commercially unjustifiable in a balanced services relationship at INR 12,00,000 per year. The instruction requires the cap to be mutual and set at 2x annual fees (INR 24,00,000). The replacement achieves both: it binds both parties symmetrically and anchors the cap to the fixed annual fee figure already stated in Clause 1, so there is no ambiguity about the reference amount. The indirect-loss exclusion is retained and extended to cover both parties explicitly. Fallback if Acme Supplies Ltd resists full mutuality: accept a mutual cap but at 1.5x annual fees (INR 18,00,000) for the Supplier and 2x (INR 24,00,000) for the Customer, preserving some asymmetry in the Customer's favour.",
+        "risk_level": "high",
+        "citations": [
+          {
+            "label": null,
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "summary": "One edit is proposed to Clause 4 (Limitation of Liability). The current clause caps only Acme Supplies Ltd's liability (at fees paid in the preceding 12 months) while leaving Aegis Test Pvt Ltd's liability uncapped — a significant imbalance at an annual contract value of INR 12,00,000. The edit makes the cap mutual and raises it to 2x annual fees (INR 24,00,000) for both parties, in line with the instruction. The annual fee figure (INR 12,00,000) is taken directly from Clause 1, so no external facts need to be supplied. No other edits are required to implement the instruction."
+  }
+}

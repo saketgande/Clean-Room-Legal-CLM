@@ -1,0 +1,495 @@
+{
+  "feature": "clause_labeling",
+  "source": "contract drafted from REQ-4031",
+  "id": "ff952934-764e-47dd-87dc-25bcf51083e9",
+  "prompt_key": "clause_labeling",
+  "prompt_version": "1.0.0",
+  "model": "claude-sonnet-4-6",
+  "status": "succeeded",
+  "stop_reason": "tool_use",
+  "total_tokens": 8201,
+  "resource_id": "f2349d0f-9d7e-4efe-8414-b325e4ef6e8b",
+  "created_at": "2026-11-05T12:01:05.732347+00:00",
+  "input_payload": {
+    "contract_id": "f2349d0f-9d7e-4efe-8414-b325e4ef6e8b",
+    "contract_version_id": "2adec8d9-2985-4f50-90b0-d4df3b6cd2be",
+    "text_snapshot_id": "7bd25390-4c66-4921-a57b-1dc810cb9bb9",
+    "segments": [
+      {
+        "id": "S1",
+        "number": "A.",
+        "excerpt": "A. The Parties wish to exchange confidential information for the following purpose: Mutual NDA to share formulation data for a joint study (the \"Purpose\")."
+      },
+      {
+        "id": "S2",
+        "number": "B.",
+        "excerpt": "B. In connection with the Purpose, confidential and proprietary information may be disclosed. Each Party may act as both Disclosing Party and Receiving Party."
+      },
+      {
+        "id": "S3",
+        "number": "C.",
+        "excerpt": "C. The Parties wish to set out the terms on which such information will be disclosed, used and protected. NOW, THEREFORE, in consideration of the mutual covenants in this Agreement and the disclosure of Confidential Information, the Parties agree as follows."
+      },
+      {
+        "id": "S4",
+        "number": "1.",
+        "excerpt": "1. DEFINITIONS 1.1 \"Disclosing Party\" means the Party that discloses Confidential Information, directly or through its Representatives, and \"Receiving Party\" means the Party that receives it, in each case as identified in the Recitals. 1.2 \"Representatives\" means the Receiving Party's directors, off"
+      },
+      {
+        "id": "S5",
+        "number": "1.1",
+        "excerpt": "1.1 \"Disclosing Party\" means the Party that discloses Confidential Information, directly or through its Representatives, and \"Receiving Party\" means the Party that receives it, in each case as identified in the Recitals."
+      },
+      {
+        "id": "S6",
+        "number": "1.2",
+        "excerpt": "1.2 \"Representatives\" means the Receiving Party's directors, officers and employees, and its individual professional advisers (lawyers, accountants and financial advisers), in each case who have a strict need to know the Confidential Information for the Purpose."
+      },
+      {
+        "id": "S7",
+        "number": "1.3",
+        "excerpt": "1.3 \"Affiliate\" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where \"control\" means ownership of more than fifty percent (50%) of the voting interests of the entity."
+      },
+      {
+        "id": "S8",
+        "number": "1.4",
+        "excerpt": "1.4 \"Purpose\" has the meaning given in Recital A."
+      },
+      {
+        "id": "S9",
+        "number": "2.",
+        "excerpt": "2. DEFINITION OF CONFIDENTIAL INFORMATION 2.1 \"Confidential Information\" means any and all non-public information disclosed by the Disclosing Party to the Receiving Party, before or after the Effective Date, in any form or medium (whether written, oral, electronic, visual or by demonstration or insp"
+      },
+      {
+        "id": "S10",
+        "number": "2.1",
+        "excerpt": "2.1 \"Confidential Information\" means any and all non-public information disclosed by the Disclosing Party to the Receiving Party, before or after the Effective Date, in any form or medium (whether written, oral, electronic, visual or by demonstration or inspection), including without limitation tech"
+      },
+      {
+        "id": "S11",
+        "number": "2.2",
+        "excerpt": "2.2 Confidential Information expressly includes: (a) all data, datasets, and information used to train, fine-tune, or evaluate any artificial intelligence or machine learning model; (b) outputs, embeddings, or derivative works generated using Disclosing Party's Confidential Information; and (c) the "
+      },
+      {
+        "id": "S12",
+        "number": "2.3",
+        "excerpt": "2.3 Confidential Information also includes all notes, analyses, compilations, summaries, forecasts and other materials prepared by or for the Receiving Party or its Representatives that contain, reflect or are derived from any Confidential Information, and the existence and terms of this Agreement."
+      },
+      {
+        "id": "S13",
+        "number": "3.",
+        "excerpt": "3. EXCLUSIONS FROM CONFIDENTIAL INFORMATION 3.1 The obligations of confidentiality shall not apply to information that the Receiving Party can demonstrate by clear and convincing written evidence: (a) is or becomes publicly available through no act or omission of the Receiving Party or its Represent"
+      },
+      {
+        "id": "S14",
+        "number": "3.1",
+        "excerpt": "3.1 The obligations of confidentiality shall not apply to information that the Receiving Party can demonstrate by clear and convincing written evidence: (a) is or becomes publicly available through no act or omission of the Receiving Party or its Representatives in breach of this Agreement; (b) was "
+      },
+      {
+        "id": "S15",
+        "number": "3.2",
+        "excerpt": "3.2 The Receiving Party bears the burden of proving by clear and convincing written evidence that any exclusion applies. No combination or aggregation of non-confidential elements shall be deemed non-confidential if the combination itself constitutes Confidential Information."
+      },
+      {
+        "id": "S16",
+        "number": "3.3",
+        "excerpt": "3.3 Confidential Information shall not be deemed to fall within any exclusion merely because individual features or elements of it are publicly available or in the Receiving Party's possession. No right to use information retained in the unaided memory of any person is granted under this Agreement."
+      },
+      {
+        "id": "S17",
+        "number": "4.",
+        "excerpt": "4. PERMITTED USE AND STANDARD OF CARE 4.1 The Receiving Party shall use Confidential Information solely for the Purpose and for no other purpose whatsoever. 4.2 The Receiving Party shall protect Confidential Information using the higher of (a) reasonable care or (b) the same degree of care it uses t"
+      },
+      {
+        "id": "S18",
+        "number": "4.1",
+        "excerpt": "4.1 The Receiving Party shall use Confidential Information solely for the Purpose and for no other purpose whatsoever."
+      },
+      {
+        "id": "S19",
+        "number": "4.2",
+        "excerpt": "4.2 The Receiving Party shall protect Confidential Information using the higher of (a) reasonable care or (b) the same degree of care it uses to protect its own confidential information of similar sensitivity, but no less than a high degree of care."
+      },
+      {
+        "id": "S20",
+        "number": "4.3",
+        "excerpt": "4.3 The Receiving Party shall not use Confidential Information to train, fine-tune, test, or otherwise develop any artificial intelligence or machine learning model, algorithm, or system. Disclosure to third-party service providers requires prior written consent of the Disclosing Party."
+      },
+      {
+        "id": "S21",
+        "number": "4.4",
+        "excerpt": "4.4 The Receiving Party may disclose Confidential Information only to those of its Representatives who have a strict need to know it for the Purpose and who are bound by written confidentiality obligations at least as protective as those in this Agreement. Disclosure to any Affiliate, contractor or "
+      },
+      {
+        "id": "S22",
+        "number": "4.5",
+        "excerpt": "4.5 The Receiving Party shall not copy or reproduce Confidential Information except as strictly necessary for the Purpose, and shall not reverse engineer, decompile or disassemble any prototype, software, sample or other tangible object embodying Confidential Information."
+      },
+      {
+        "id": "S23",
+        "number": "4.6",
+        "excerpt": "4.6 The Receiving Party shall notify the Disclosing Party in writing promptly, and in any event within forty-eight (48) hours, after becoming aware of any actual or suspected unauthorized access to, or use or disclosure of, Confidential Information, and shall cooperate with the Disclosing Party to r"
+      },
+      {
+        "id": "S24",
+        "number": "5.",
+        "excerpt": "5. COMPELLED DISCLOSURE AND LEGAL PROCESS 5.1 If the Receiving Party or any of its Representatives receives any subpoena, court order, regulatory demand or other legal process requiring disclosure of any Confidential Information, the Receiving Party shall: (a) provide prompt written notice to the Di"
+      },
+      {
+        "id": "S25",
+        "number": "5.1",
+        "excerpt": "5.1 If the Receiving Party or any of its Representatives receives any subpoena, court order, regulatory demand or other legal process requiring disclosure of any Confidential Information, the Receiving Party shall: (a) provide prompt written notice to the Disclosing Party prior to any such disclosur"
+      },
+      {
+        "id": "S26",
+        "number": "5.2",
+        "excerpt": "5.2 Where applicable law prohibits notice before disclosure, the Receiving Party shall give such notice as soon as legally permissible. In every case the Receiving Party shall disclose only the minimum amount of Confidential Information legally required and shall use reasonable efforts to obtain con"
+      },
+      {
+        "id": "S27",
+        "number": "5.3",
+        "excerpt": "5.3 Any disclosure made in compliance with this Section 5 shall not cause the information disclosed to cease to be Confidential Information for any other purpose, and all other obligations under this Agreement shall continue to apply to it."
+      },
+      {
+        "id": "S28",
+        "number": "6.",
+        "excerpt": "6. RETURN OR DESTRUCTION OF INFORMATION 6.1 Upon expiration or termination of this Agreement, or upon written request by the Disclosing Party at any time, the Receiving Party shall promptly (and in any event within ten (10) business days) return or permanently destroy all Confidential Information, i"
+      },
+      {
+        "id": "S29",
+        "number": "6.1",
+        "excerpt": "6.1 Upon expiration or termination of this Agreement, or upon written request by the Disclosing Party at any time, the Receiving Party shall promptly (and in any event within ten (10) business days) return or permanently destroy all Confidential Information, including all copies, extracts, and deriv"
+      },
+      {
+        "id": "S30",
+        "number": "6.2",
+        "excerpt": "6.2 Within ten (10) business days of expiration, termination, or written request, the Receiving Party shall return or permanently destroy all Confidential Information (including all copies, extracts, and derivatives) and provide written certification of such return or destruction signed by an author"
+      },
+      {
+        "id": "S31",
+        "number": "6.3",
+        "excerpt": "6.3 Destruction of electronic Confidential Information includes permanent deletion of all electronic copies, including copies held in backup and archival systems. The Receiving Party shall not retain any copy of Confidential Information except to the extent retention is required by applicable law or"
+      },
+      {
+        "id": "S32",
+        "number": "7.",
+        "excerpt": "7. TERM AND DURATION OF CONFIDENTIALITY 7.1 This Agreement commences on the Effective Date and continues for the term of 2 years, unless earlier terminated by either Party on thirty (30) days' prior written notice to the other Party. 7.2 The Receiving Party's obligations of confidentiality shall sur"
+      },
+      {
+        "id": "S33",
+        "number": "7.1",
+        "excerpt": "7.1 This Agreement commences on the Effective Date and continues for the term of 2 years, unless earlier terminated by either Party on thirty (30) days' prior written notice to the other Party."
+      },
+      {
+        "id": "S34",
+        "number": "7.2",
+        "excerpt": "7.2 The Receiving Party's obligations of confidentiality shall survive expiration or termination of this Agreement and shall continue for five (5) years after such expiration or termination with respect to general Confidential Information."
+      },
+      {
+        "id": "S35",
+        "number": "7.3",
+        "excerpt": "7.3 Notwithstanding the foregoing, confidentiality obligations with respect to information constituting a trade secret under applicable law shall survive indefinitely or for so long as such information retains its status as a trade secret, whichever is longer."
+      },
+      {
+        "id": "S36",
+        "number": "7.4",
+        "excerpt": "7.4 Sections 2, 3, 4, 5, 6, 7, 8, 9, 10 and 11, and any other provision which by its nature is intended to survive, shall survive expiration or termination of this Agreement."
+      },
+      {
+        "id": "S37",
+        "number": "8.",
+        "excerpt": "8. REMEDIES AND INJUNCTIVE RELIEF 8.1 Each party acknowledges that a breach or threatened breach of this Agreement would cause irreparable harm to the Disclosing Party for which monetary damages would be an inadequate remedy, and that the Disclosing Party shall be entitled to seek injunctive or othe"
+      },
+      {
+        "id": "S38",
+        "number": "8.1",
+        "excerpt": "8.1 Each party acknowledges that a breach or threatened breach of this Agreement would cause irreparable harm to the Disclosing Party for which monetary damages would be an inadequate remedy, and that the Disclosing Party shall be entitled to seek injunctive or other equitable relief without the req"
+      },
+      {
+        "id": "S39",
+        "number": "8.2",
+        "excerpt": "8.2 Accordingly, each Party, in its capacity as Disclosing Party, shall be entitled to seek injunctive or other equitable relief to prevent or remedy any breach or threatened breach of this Agreement, without the requirement to post any bond or other security, and without prejudice to any other righ"
+      },
+      {
+        "id": "S40",
+        "number": "8.3",
+        "excerpt": "8.3 No limitation or exclusion of liability in this Agreement or in any other agreement between the Parties shall apply to, or cap, a Party's liability for breach of its confidentiality obligations under this Agreement."
+      },
+      {
+        "id": "S41",
+        "number": "8.4",
+        "excerpt": "8.4 In any action to enforce this Agreement, the prevailing Party shall be entitled to recover its reasonable legal fees and costs from the other Party."
+      },
+      {
+        "id": "S42",
+        "number": "9.",
+        "excerpt": "9. GOVERNING LAW AND JURISDICTION 9.1 This Agreement shall be governed by and construed in accordance with the laws of India, without regard to its conflict of laws principles. Each party irrevocably submits to the exclusive jurisdiction of the courts of India for resolution of any dispute arising o"
+      },
+      {
+        "id": "S43",
+        "number": "9.1",
+        "excerpt": "9.1 This Agreement shall be governed by and construed in accordance with the laws of India, without regard to its conflict of laws principles. Each party irrevocably submits to the exclusive jurisdiction of the courts of India for resolution of any dispute arising out of or relating to this Agreemen"
+      },
+      {
+        "id": "S44",
+        "number": "9.2",
+        "excerpt": "9.2 Each Party irrevocably consents to the exclusive jurisdiction and venue of such courts and waives any objection to such jurisdiction or venue, including any objection that such courts are an inconvenient forum."
+      },
+      {
+        "id": "S45",
+        "number": "9.3",
+        "excerpt": "9.3 To the extent permitted by applicable law, each Party waives any right to trial by jury in any proceeding arising out of or relating to this Agreement."
+      },
+      {
+        "id": "S46",
+        "number": "10.",
+        "excerpt": "10. OWNERSHIP, NO LICENCE AND NO WARRANTY 10.1 All Confidential Information remains the property of the Disclosing Party. Nothing in this Agreement grants the Receiving Party any right, title, interest or licence, by implication, estoppel or otherwise, in or to any Confidential Information or any pa"
+      },
+      {
+        "id": "S47",
+        "number": "10.1",
+        "excerpt": "10.1 All Confidential Information remains the property of the Disclosing Party. Nothing in this Agreement grants the Receiving Party any right, title, interest or licence, by implication, estoppel or otherwise, in or to any Confidential Information or any patent, copyright, trade secret, trademark o"
+      },
+      {
+        "id": "S48",
+        "number": "10.2",
+        "excerpt": "10.2 All Confidential Information is provided \"as is.\" The Disclosing Party makes no representation or warranty, express or implied, as to the accuracy or completeness of any Confidential Information, and shall have no liability arising from its use, except as may be set out in a definitive written "
+      },
+      {
+        "id": "S49",
+        "number": "10.3",
+        "excerpt": "10.3 Neither Party is obliged by this Agreement to disclose any particular information, to continue discussions, or to enter into any further agreement or transaction. Any such obligation will arise only under a definitive written agreement signed by both Parties."
+      },
+      {
+        "id": "S50",
+        "number": "11.",
+        "excerpt": "11. GENERAL 11.1 Personal Data. To the extent Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with all applicable data protection laws, and the Parties shall enter into any further agreement such laws require before such pe"
+      },
+      {
+        "id": "S51",
+        "number": "11.1",
+        "excerpt": "11.1 Personal Data. To the extent Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with all applicable data protection laws, and the Parties shall enter into any further agreement such laws require before such personal data "
+      },
+      {
+        "id": "S52",
+        "number": "11.2",
+        "excerpt": "11.2 Export Control. Each Party shall comply with all applicable export control and sanctions laws in relation to any Confidential Information it receives."
+      },
+      {
+        "id": "S53",
+        "number": "11.3",
+        "excerpt": "11.3 No Publicity. Neither Party shall make any public announcement concerning the Purpose or this Agreement, or use the other Party's name or marks, without the other Party's prior written consent."
+      },
+      {
+        "id": "S54",
+        "number": "11.4",
+        "excerpt": "11.4 Notices. All notices under this Agreement shall be in writing and delivered by hand, by recognized courier, or by email with confirmation of transmission, to the address of the receiving Party set out in its signature block below or such other address as a Party notifies in writing. A notice is"
+      },
+      {
+        "id": "S55",
+        "number": "11.5",
+        "excerpt": "11.5 Assignment. Neither Party may assign, transfer or delegate this Agreement or any of its rights or obligations without the prior written consent of the other Party. Any purported assignment in breach of this Section is void. This Agreement binds and benefits the Parties and their permitted succe"
+      },
+      {
+        "id": "S56",
+        "number": "11.6",
+        "excerpt": "11.6 Entire Agreement. This Agreement constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior or contemporaneous understandings, agreements and communications, whether written or oral, regarding that subject matter."
+      },
+      {
+        "id": "S57",
+        "number": "11.7",
+        "excerpt": "11.7 Amendment and Waiver. This Agreement may be amended only by a written instrument signed by authorized representatives of both Parties. No failure or delay in exercising any right operates as a waiver of it, and no waiver is effective unless in writing."
+      },
+      {
+        "id": "S58",
+        "number": "11.8",
+        "excerpt": "11.8 Severability. If any provision of this Agreement is held invalid or unenforceable, it shall be enforced to the maximum extent permissible and the remaining provisions shall continue in full force and effect."
+      },
+      {
+        "id": "S59",
+        "number": "11.9",
+        "excerpt": "11.9 Relationship. Nothing in this Agreement creates any partnership, joint venture, agency or employment relationship between the Parties."
+      },
+      {
+        "id": "S60",
+        "number": "11.10",
+        "excerpt": "11.10 Counterparts and Electronic Signature. This Agreement may be executed in counterparts, each of which is an original and all of which together constitute one instrument. Signatures delivered electronically or by electronic signature service are binding as originals. IN WITNESS WHEREOF, the Part"
+      }
+    ]
+  },
+  "validated_output": {
+    "labels": [
+      {
+        "segment_id": "S17",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S18",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S19",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S20",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S21",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S22",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S23",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S24",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S28",
+        "clause_type": "confidentiality",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S32",
+        "clause_type": "term_and_termination",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S33",
+        "clause_type": "term_and_termination",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S34",
+        "clause_type": "term_and_termination",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S35",
+        "clause_type": "term_and_termination",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S37",
+        "clause_type": "remedies",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S38",
+        "clause_type": "remedies",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S39",
+        "clause_type": "remedies",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S40",
+        "clause_type": "limitation_of_liability",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S41",
+        "clause_type": "remedies",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S42",
+        "clause_type": "governing_law",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S43",
+        "clause_type": "governing_law",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S44",
+        "clause_type": "dispute_resolution",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S45",
+        "clause_type": "dispute_resolution",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S46",
+        "clause_type": "ip_ownership",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S47",
+        "clause_type": "ip_ownership",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S48",
+        "clause_type": "warranty",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S51",
+        "clause_type": "data_protection",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S52",
+        "clause_type": "export_control",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S53",
+        "clause_type": "no_publicity",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S54",
+        "clause_type": "notices",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S55",
+        "clause_type": "assignment",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S56",
+        "clause_type": "entire_agreement",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S57",
+        "clause_type": "amendment",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S58",
+        "clause_type": "severability",
+        "confidence": "high"
+      },
+      {
+        "segment_id": "S60",
+        "clause_type": "counterparts",
+        "confidence": "high"
+      }
+    ],
+    "extraction_notes": "Section 11 is a \"General/Miscellaneous\" section mixing distinct topics, so its sub-clauses (11.1–11.10) are labelled individually rather than the parent. Section 8.3 is notable: it explicitly carves out confidentiality-breach liability from any limitation-of-liability cap, which is an unusually strong pro-disclosing-party provision. Section 4.3 contains an explicit AI/ML training prohibition on Confidential Information, which is a modern and noteworthy addition to a pharma NDA."
+  }
+}

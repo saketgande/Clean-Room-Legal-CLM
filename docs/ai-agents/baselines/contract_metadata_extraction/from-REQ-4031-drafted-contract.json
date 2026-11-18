@@ -1,0 +1,75 @@
+{
+  "feature": "contract_metadata_extraction",
+  "source": "contract drafted from REQ-4031",
+  "id": "efae415b-281d-414f-9ac5-ade704251e7b",
+  "prompt_key": "contract_metadata_extraction",
+  "prompt_version": "1.0.0",
+  "model": "claude-sonnet-4-6",
+  "status": "succeeded",
+  "stop_reason": "tool_use",
+  "total_tokens": 5739,
+  "resource_id": "f2349d0f-9d7e-4efe-8414-b325e4ef6e8b",
+  "created_at": "2026-11-05T12:01:16.024972+00:00",
+  "input_payload": {
+    "contract_id": "f2349d0f-9d7e-4efe-8414-b325e4ef6e8b",
+    "contract_version_id": "2adec8d9-2985-4f50-90b0-d4df3b6cd2be",
+    "text_snapshot_id": "7bd25390-4c66-4921-a57b-1dc810cb9bb9"
+  },
+  "validated_output": {
+    "title": "Mutual NDA — Zenith Pharma Ltd",
+    "contract_type": "NDA",
+    "counterparty_name": "Zenith Pharma Ltd",
+    "jurisdiction": "India",
+    "risk_level": "medium",
+    "value_amount": null,
+    "currency": null,
+    "effective_date": "2026-11-20",
+    "expiration_date": "2028-11-20",
+    "confidence": "high",
+    "citations": [
+      {
+        "label": "parties_and_effective_date",
+        "quote": "This Mutual Non-Disclosure Agreement (the \"Agreement\") is entered into as of 20 November 2026 (the \"Effective Date\") by and between Aegis Test Pvt Ltd (\"Aegis Test Pvt Ltd\") and Zenith Pharma Ltd (\"Zenith Pharma Ltd\").",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "purpose",
+        "quote": "Mutual NDA to share formulation data for a joint study (the \"Purpose\").",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "term_and_expiration",
+        "quote": "This Agreement commences on the Effective Date and continues for the term of 2 years, unless earlier terminated by either Party on thirty (30) days' prior written notice to the other Party.",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "governing_law_and_jurisdiction",
+        "quote": "This Agreement shall be governed by and construed in accordance with the laws of India, without regard to its conflict of laws principles. Each party irrevocably submits to the exclusive jurisdiction of the courts of India for resolution of any dispute arising out of or relating to this Agreement.",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "ai_ml_restriction",
+        "quote": "The Receiving Party shall not use Confidential Information to train, fine-tune, test, or otherwise develop any artificial intelligence or machine learning model, algorithm, or system.",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "uncapped_liability",
+        "quote": "No limitation or exclusion of liability in this Agreement or in any other agreement between the Parties shall apply to, or cap, a Party's liability for breach of its confidentiality obligations under this Agreement.",
+        "page_number": 1,
+        "start_char": null,
+        "end_char": null
+      }
+    ],
+    "notes": "1. TITLE & PARTIES: The agreement is a Mutual NDA between Aegis Test Pvt Ltd (first party / platform owner) and Zenith Pharma Ltd (counterparty). Both full legal entity names are stated in the opening clause.\n\n2. EFFECTIVE DATE: Explicitly stated as 20 November 2026 (ISO-8601: 2026-11-20).\n\n3. EXPIRATION DATE: Section 7.1 states a 2-year term commencing on the Effective Date, yielding a calculated expiration of 2028-11-20. This is a derived date (Effective Date + 2 years), not a literal date in the text; flagged accordingly.\n\n4. CURRENCY / VALUE AMOUNT: No monetary consideration or contract value is mentioned anywhere in the document. Both fields are null.\n\n5. JURISDICTION: Explicitly stated as India (Section 9.1).\n\n6. RISK LEVEL set to \"medium\" based on the following notable provisions:\n   - Uncapped liability for confidentiality breaches (Section 8.3) — elevated risk.\n   - Explicit AI/ML prohibition on use of Confidential Information for model training (Section 4.3) — modern, high-signal clause.\n   - 48-hour breach notification obligation (Section 4.6) — operationally demanding.\n   - Indefinite survival of trade-secret obligations (Section 7.3).\n   - No monetary cap or indemnity cap is present.\n   These factors collectively suggest medium-to-elevated risk, but the agreement is a standard mutual NDA with no financial commitments, keeping overall risk at medium rather than high.\n\n7. DOCUMENT COMPLETENESS: The text snapshot is complete (text_was_truncated: false). The signature block is present but unfilled (names, titles, dates, and addresses are blank), which is normal for a template/draft. No fields are obscured by truncation.\n\n8. SURVIVAL: Confidentiality obligations survive for 5 years post-termination for general Confidential Information, and indefinitely for trade secrets (Sections 7.2–7.3)."
+  }
+}

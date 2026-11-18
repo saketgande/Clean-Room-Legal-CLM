@@ -1,0 +1,1 @@
+{"note":"real run, dry-run renewal (no renewal events in dev DB) on first dev contract, 30-day notice / 90-day expiry","decision":"renegotiate","confidence":"low","generated":true,"rationale":"The contract expires in 90 days with a notice deadline in just 30 days, ... no playbook review ... renegotiation preferred over a blind renewal."}

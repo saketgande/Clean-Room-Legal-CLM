@@ -1,0 +1,193 @@
+{
+  "feature": "playbook_generation",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "suggested_name": "Acme Supplies – Warehousing Services Agreement Playbook (Supplier)",
+    "rules": [
+      {
+        "clause_type": "fees_and_payment",
+        "rule_type": "standard_position",
+        "preferred_position": "Payment terms of 30 days from invoice receipt are acceptable as a baseline; Supplier should seek the right to charge interest on overdue amounts and suspend services after a defined grace period.",
+        "fallback_position": "Accept 30-day payment terms only if an interest-on-late-payment clause (e.g., 1.5% per month) and a right to suspend services after 15 days of non-payment are added.",
+        "prohibited_language": "Any language extending payment terms beyond 45 days or waiving Supplier's right to suspend for non-payment.",
+        "required_language": "Interest shall accrue on overdue invoices at [rate] per month from the due date. Supplier may suspend services upon [X] days' written notice if any undisputed invoice remains unpaid.",
+        "risk_level": "high",
+        "rationale": "The source clause (§1) fixes payment at INR 12,00,000/year invoiced quarterly with a 30-day payment window but is entirely silent on late-payment consequences and suspension rights, leaving the Supplier with no contractual remedy short of termination if the Customer delays payment.",
+        "sample_clause": "The Customer shall pay each invoice within 30 days of receipt. Overdue amounts shall bear interest at 1.5% per month. If any undisputed invoice remains unpaid for more than 15 days after its due date, the Supplier may, on 7 days' written notice, suspend Services until payment is received in full.",
+        "negotiation_guidance": "Lead with the interest-on-late-payment ask as a market-standard term under Indian commercial practice; if the Customer resists, offer to drop the suspension right in exchange for a firm interest rate. Do not concede both. Tie the suspension right to 'undisputed' amounts to pre-empt bad-faith dispute claims.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "limitation_of_liability",
+        "rule_type": "standard_position",
+        "preferred_position": "Supplier's aggregate liability cap should remain at fees paid in the preceding 12 months. The mutual exclusion of indirect/consequential loss should be preserved and explicitly extended to cover loss of profit, loss of data, and loss of business.",
+        "fallback_position": "If the Customer demands a higher cap, concede up to 150% of annual fees (INR 18,00,000) but insist the indirect-loss exclusion is retained without carve-outs.",
+        "prohibited_language": "Any carve-out from the indirect-loss exclusion for 'wilful misconduct' or 'gross negligence' without a corresponding cap increase; any uncapped liability for data loss or third-party claims.",
+        "required_language": "In no event shall either party be liable for any indirect, consequential, special, incidental, or punitive loss, including loss of profit, loss of revenue, or loss of data, howsoever arising.",
+        "risk_level": "critical",
+        "rationale": "Section 4 caps the Supplier's total liability at fees paid in the preceding 12 months and excludes indirect loss, but the clause does not enumerate what counts as 'indirect loss,' creating ambiguity that a Customer could exploit to argue that stock losses or business interruption are direct losses.",
+        "sample_clause": "The Supplier's total aggregate liability to the Customer under or in connection with this Agreement shall not exceed the fees actually paid by the Customer in the 12 months immediately preceding the event giving rise to the claim. Neither party shall be liable for any indirect, consequential, special, or punitive loss or damage, including loss of profit, loss of revenue, loss of anticipated savings, or loss of data, whether or not such loss was foreseeable.",
+        "negotiation_guidance": "Anchor on the existing §4 language as already agreed-in-principle in the template. If the Customer pushes for a gross-negligence carve-out, counter by offering a slightly higher cap (up to 150% of annual fees) rather than opening the indirect-loss exclusion. Never accept uncapped liability for any category.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "termination",
+        "rule_type": "standard_position",
+        "preferred_position": "Retain the 15-day cure period for material breach. Extend the convenience termination notice period from 30 days to at least 90 days to protect Supplier's revenue and operational planning. Add a provision requiring the Customer to pay fees accrued up to the termination date plus a reasonable wind-down fee.",
+        "fallback_position": "Accept 60-day convenience notice (matching the renewal notice period in §2) if a wind-down fee equal to one quarter's fees is included. Do not accept fewer than 15 days' cure period for breach.",
+        "prohibited_language": "Any right for the Customer to terminate for convenience with fewer than 30 days' notice without a corresponding wind-down payment; any reduction of the cure period below 15 days.",
+        "required_language": "Upon termination for convenience by the Customer, the Customer shall pay all fees accrued to the termination date plus a wind-down fee equal to [one quarter's fees]. The cure period for material breach shall be no less than 15 business days.",
+        "risk_level": "high",
+        "rationale": "Section 6 allows either party to terminate for convenience on only 30 days' notice, which is asymmetrically short for a Supplier providing warehousing infrastructure; it also omits any wind-down or stranded-cost payment, leaving the Supplier exposed to unrecovered fixed costs if the Customer exits mid-term.",
+        "sample_clause": "Either party may terminate this Agreement for convenience by giving the other not less than 90 days' written notice. Either party may terminate immediately upon written notice if the other commits a material breach and fails to remedy it within 15 business days of receiving written notice of the breach. On termination for convenience by the Customer, the Customer shall pay all fees accrued to the effective termination date plus a wind-down fee equal to one quarter's annual fees.",
+        "negotiation_guidance": "Frame the longer notice period as operationally necessary for a warehousing business (staff, space, inventory transition). If the Customer insists on 30 days, make the wind-down fee non-negotiable. Offer to reduce the wind-down fee to one month's fees if the Customer agrees to 60-day notice. Do not concede both a short notice period and no wind-down fee.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "confidentiality",
+        "rule_type": "standard_position",
+        "preferred_position": "The 3-year post-termination confidentiality period should be retained. Add standard carve-outs (publicly available information, independently developed information, legally compelled disclosure) and clarify that the Customer's inventory data and pricing are the Supplier's confidential information.",
+        "fallback_position": "Accept a 2-year post-termination period if the Customer insists, provided the carve-outs and the definition of Supplier confidential information (pricing, processes) are included.",
+        "prohibited_language": "Any obligation of confidentiality with no time limit or that purports to cover information already in the public domain; any clause that omits a compelled-disclosure carve-out.",
+        "required_language": "Confidential Information excludes information that: (a) is or becomes publicly available through no fault of the receiving party; (b) was already known to the receiving party; (c) is independently developed; or (d) is required to be disclosed by law or court order, provided prompt written notice is given to the disclosing party.",
+        "risk_level": "medium",
+        "rationale": "Section 5 imposes a 3-year post-termination obligation but contains no carve-outs whatsoever, meaning the Supplier could technically be in breach for disclosing information that is already publicly available or that it is legally compelled to disclose, creating unnecessary legal exposure.",
+        "sample_clause": "Each party shall keep the other's Confidential Information strictly confidential and shall not disclose it to any third party for a period of 3 years after termination of this Agreement. This obligation does not apply to information that: (a) is or becomes publicly available other than through breach of this clause; (b) was already known to the receiving party at the time of disclosure; (c) is independently developed by the receiving party without reference to the Confidential Information; or (d) is required to be disclosed by applicable law or court order, provided the receiving party gives prompt prior written notice to the disclosing party.",
+        "negotiation_guidance": "Present the carve-outs as legally standard and non-controversial — most counterparties accept them without pushback. If the Customer seeks a longer confidentiality period (e.g., 5 years), agree only if the carve-outs are included in full. Do not accept perpetual confidentiality obligations.",
+        "approval_required": false
+      }
+    ],
+    "notes": "Contract type: Warehousing Services Agreement. Org side: Supplier (Acme Supplies Ltd). Source document is a single-part, 7-clause agreement governed by Indian law with Mumbai jurisdiction. Exactly 4 rules produced per the instruction cap. All rules are grounded in specific source clauses (§1, §4, §5, §6). Governing law and term/renewal clauses were noted but deprioritised in favour of the four highest-exposure clause types for the Supplier."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "playbook_generation",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 2363,
+      "completion_tokens": 2329,
+      "total_tokens": 4692,
+      "latency_ms": 45888.264995999634,
+      "validated_output": {
+        "suggested_name": "Acme Supplies – Warehousing Services Agreement Playbook (Supplier)",
+        "rules": [
+          {
+            "clause_type": "fees_and_payment",
+            "rule_type": "standard_position",
+            "preferred_position": "Payment terms of 30 days from invoice receipt are acceptable as a baseline; Supplier should seek the right to charge interest on overdue amounts and suspend services after a defined grace period.",
+            "fallback_position": "Accept 30-day payment terms only if an interest-on-late-payment clause (e.g., 1.5% per month) and a right to suspend services after 15 days of non-payment are added.",
+            "prohibited_language": "Any language extending payment terms beyond 45 days or waiving Supplier's right to suspend for non-payment.",
+            "required_language": "Interest shall accrue on overdue invoices at [rate] per month from the due date. Supplier may suspend services upon [X] days' written notice if any undisputed invoice remains unpaid.",
+            "risk_level": "high",
+            "rationale": "The source clause (§1) fixes payment at INR 12,00,000/year invoiced quarterly with a 30-day payment window but is entirely silent on late-payment consequences and suspension rights, leaving the Supplier with no contractual remedy short of termination if the Customer delays payment.",
+            "sample_clause": "The Customer shall pay each invoice within 30 days of receipt. Overdue amounts shall bear interest at 1.5% per month. If any undisputed invoice remains unpaid for more than 15 days after its due date, the Supplier may, on 7 days' written notice, suspend Services until payment is received in full.",
+            "negotiation_guidance": "Lead with the interest-on-late-payment ask as a market-standard term under Indian commercial practice; if the Customer resists, offer to drop the suspension right in exchange for a firm interest rate. Do not concede both. Tie the suspension right to 'undisputed' amounts to pre-empt bad-faith dispute claims.",
+            "approval_required": true
+          },
+          {
+            "clause_type": "limitation_of_liability",
+            "rule_type": "standard_position",
+            "preferred_position": "Supplier's aggregate liability cap should remain at fees paid in the preceding 12 months. The mutual exclusion of indirect/consequential loss should be preserved and explicitly extended to cover loss of profit, loss of data, and loss of business.",
+            "fallback_position": "If the Customer demands a higher cap, concede up to 150% of annual fees (INR 18,00,000) but insist the indirect-loss exclusion is retained without carve-outs.",
+            "prohibited_language": "Any carve-out from the indirect-loss exclusion for 'wilful misconduct' or 'gross negligence' without a corresponding cap increase; any uncapped liability for data loss or third-party claims.",
+            "required_language": "In no event shall either party be liable for any indirect, consequential, special, incidental, or punitive loss, including loss of profit, loss of revenue, or loss of data, howsoever arising.",
+            "risk_level": "critical",
+            "rationale": "Section 4 caps the Supplier's total liability at fees paid in the preceding 12 months and excludes indirect loss, but the clause does not enumerate what counts as 'indirect loss,' creating ambiguity that a Customer could exploit to argue that stock losses or business interruption are direct losses.",
+            "sample_clause": "The Supplier's total aggregate liability to the Customer under or in connection with this Agreement shall not exceed the fees actually paid by the Customer in the 12 months immediately preceding the event giving rise to the claim. Neither party shall be liable for any indirect, consequential, special, or punitive loss or damage, including loss of profit, loss of revenue, loss of anticipated savings, or loss of data, whether or not such loss was foreseeable.",
+            "negotiation_guidance": "Anchor on the existing §4 language as already agreed-in-principle in the template. If the Customer pushes for a gross-negligence carve-out, counter by offering a slightly higher cap (up to 150% of annual fees) rather than opening the indirect-loss exclusion. Never accept uncapped liability for any category.",
+            "approval_required": true
+          },
+          {
+            "clause_type": "termination",
+            "rule_type": "standard_position",
+            "preferred_position": "Retain the 15-day cure period for material breach. Extend the convenience termination notice period from 30 days to at least 90 days to protect Supplier's revenue and operational planning. Add a provision requiring the Customer to pay fees accrued up to the termination date plus a reasonable wind-down fee.",
+            "fallback_position": "Accept 60-day convenience notice (matching the renewal notice period in §2) if a wind-down fee equal to one quarter's fees is included. Do not accept fewer than 15 days' cure period for breach.",
+            "prohibited_language": "Any right for the Customer to terminate for convenience with fewer than 30 days' notice without a corresponding wind-down payment; any reduction of the cure period below 15 days.",
+            "required_language": "Upon termination for convenience by the Customer, the Customer shall pay all fees accrued to the termination date plus a wind-down fee equal to [one quarter's fees]. The cure period for material breach shall be no less than 15 business days.",
+            "risk_level": "high",
+            "rationale": "Section 6 allows either party to terminate for convenience on only 30 days' notice, which is asymmetrically short for a Supplier providing warehousing infrastructure; it also omits any wind-down or stranded-cost payment, leaving the Supplier exposed to unrecovered fixed costs if the Customer exits mid-term.",
+            "sample_clause": "Either party may terminate this Agreement for convenience by giving the other not less than 90 days' written notice. Either party may terminate immediately upon written notice if the other commits a material breach and fails to remedy it within 15 business days of receiving written notice of the breach. On termination for convenience by the Customer, the Customer shall pay all fees accrued to the effective termination date plus a wind-down fee equal to one quarter's annual fees.",
+            "negotiation_guidance": "Frame the longer notice period as operationally necessary for a warehousing business (staff, space, inventory transition). If the Customer insists on 30 days, make the wind-down fee non-negotiable. Offer to reduce the wind-down fee to one month's fees if the Customer agrees to 60-day notice. Do not concede both a short notice period and no wind-down fee.",
+            "approval_required": true
+          },
+          {
+            "clause_type": "confidentiality",
+            "rule_type": "standard_position",
+            "preferred_position": "The 3-year post-termination confidentiality period should be retained. Add standard carve-outs (publicly available information, independently developed information, legally compelled disclosure) and clarify that the Customer's inventory data and pricing are the Supplier's confidential information.",
+            "fallback_position": "Accept a 2-year post-termination period if the Customer insists, provided the carve-outs and the definition of Supplier confidential information (pricing, processes) are included.",
+            "prohibited_language": "Any obligation of confidentiality with no time limit or that purports to cover information already in the public domain; any clause that omits a compelled-disclosure carve-out.",
+            "required_language": "Confidential Information excludes information that: (a) is or becomes publicly available through no fault of the receiving party; (b) was already known to the receiving party; (c) is independently developed; or (d) is required to be disclosed by law or court order, provided prompt written notice is given to the disclosing party.",
+            "risk_level": "medium",
+            "rationale": "Section 5 imposes a 3-year post-termination obligation but contains no carve-outs whatsoever, meaning the Supplier could technically be in breach for disclosing information that is already publicly available or that it is legally compelled to disclose, creating unnecessary legal exposure.",
+            "sample_clause": "Each party shall keep the other's Confidential Information strictly confidential and shall not disclose it to any third party for a period of 3 years after termination of this Agreement. This obligation does not apply to information that: (a) is or becomes publicly available other than through breach of this clause; (b) was already known to the receiving party at the time of disclosure; (c) is independently developed by the receiving party without reference to the Confidential Information; or (d) is required to be disclosed by applicable law or court order, provided the receiving party gives prompt prior written notice to the disclosing party.",
+            "negotiation_guidance": "Present the carve-outs as legally standard and non-controversial — most counterparties accept them without pushback. If the Customer seeks a longer confidentiality period (e.g., 5 years), agree only if the carve-outs are included in full. Do not accept perpetual confidentiality obligations.",
+            "approval_required": false
+          }
+        ],
+        "notes": "Contract type: Warehousing Services Agreement. Org side: Supplier (Acme Supplies Ltd). Source document is a single-part, 7-clause agreement governed by Indian law with Mumbai jurisdiction. Exactly 4 rules produced per the instruction cap. All rules are grounded in specific source clauses (§1, §4, §5, §6). Governing law and term/renewal clauses were noted but deprioritised in favour of the four highest-exposure clause types for the Supplier."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "suggested_name": "Acme Supplies – Warehousing Services Agreement Playbook (Supplier)",
+    "rules": [
+      {
+        "clause_type": "fees_and_payment",
+        "rule_type": "standard_position",
+        "preferred_position": "Payment terms of 30 days from invoice receipt are acceptable as a baseline; Supplier should seek the right to charge interest on overdue amounts and suspend services after a defined grace period.",
+        "fallback_position": "Accept 30-day payment terms only if an interest-on-late-payment clause (e.g., 1.5% per month) and a right to suspend services after 15 days of non-payment are added.",
+        "prohibited_language": "Any language extending payment terms beyond 45 days or waiving Supplier's right to suspend for non-payment.",
+        "required_language": "Interest shall accrue on overdue invoices at [rate] per month from the due date. Supplier may suspend services upon [X] days' written notice if any undisputed invoice remains unpaid.",
+        "risk_level": "high",
+        "rationale": "The source clause (§1) fixes payment at INR 12,00,000/year invoiced quarterly with a 30-day payment window but is entirely silent on late-payment consequences and suspension rights, leaving the Supplier with no contractual remedy short of termination if the Customer delays payment.",
+        "sample_clause": "The Customer shall pay each invoice within 30 days of receipt. Overdue amounts shall bear interest at 1.5% per month. If any undisputed invoice remains unpaid for more than 15 days after its due date, the Supplier may, on 7 days' written notice, suspend Services until payment is received in full.",
+        "negotiation_guidance": "Lead with the interest-on-late-payment ask as a market-standard term under Indian commercial practice; if the Customer resists, offer to drop the suspension right in exchange for a firm interest rate. Do not concede both. Tie the suspension right to 'undisputed' amounts to pre-empt bad-faith dispute claims.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "limitation_of_liability",
+        "rule_type": "standard_position",
+        "preferred_position": "Supplier's aggregate liability cap should remain at fees paid in the preceding 12 months. The mutual exclusion of indirect/consequential loss should be preserved and explicitly extended to cover loss of profit, loss of data, and loss of business.",
+        "fallback_position": "If the Customer demands a higher cap, concede up to 150% of annual fees (INR 18,00,000) but insist the indirect-loss exclusion is retained without carve-outs.",
+        "prohibited_language": "Any carve-out from the indirect-loss exclusion for 'wilful misconduct' or 'gross negligence' without a corresponding cap increase; any uncapped liability for data loss or third-party claims.",
+        "required_language": "In no event shall either party be liable for any indirect, consequential, special, incidental, or punitive loss, including loss of profit, loss of revenue, or loss of data, howsoever arising.",
+        "risk_level": "critical",
+        "rationale": "Section 4 caps the Supplier's total liability at fees paid in the preceding 12 months and excludes indirect loss, but the clause does not enumerate what counts as 'indirect loss,' creating ambiguity that a Customer could exploit to argue that stock losses or business interruption are direct losses.",
+        "sample_clause": "The Supplier's total aggregate liability to the Customer under or in connection with this Agreement shall not exceed the fees actually paid by the Customer in the 12 months immediately preceding the event giving rise to the claim. Neither party shall be liable for any indirect, consequential, special, or punitive loss or damage, including loss of profit, loss of revenue, loss of anticipated savings, or loss of data, whether or not such loss was foreseeable.",
+        "negotiation_guidance": "Anchor on the existing §4 language as already agreed-in-principle in the template. If the Customer pushes for a gross-negligence carve-out, counter by offering a slightly higher cap (up to 150% of annual fees) rather than opening the indirect-loss exclusion. Never accept uncapped liability for any category.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "termination",
+        "rule_type": "standard_position",
+        "preferred_position": "Retain the 15-day cure period for material breach. Extend the convenience termination notice period from 30 days to at least 90 days to protect Supplier's revenue and operational planning. Add a provision requiring the Customer to pay fees accrued up to the termination date plus a reasonable wind-down fee.",
+        "fallback_position": "Accept 60-day convenience notice (matching the renewal notice period in §2) if a wind-down fee equal to one quarter's fees is included. Do not accept fewer than 15 days' cure period for breach.",
+        "prohibited_language": "Any right for the Customer to terminate for convenience with fewer than 30 days' notice without a corresponding wind-down payment; any reduction of the cure period below 15 days.",
+        "required_language": "Upon termination for convenience by the Customer, the Customer shall pay all fees accrued to the termination date plus a wind-down fee equal to [one quarter's fees]. The cure period for material breach shall be no less than 15 business days.",
+        "risk_level": "high",
+        "rationale": "Section 6 allows either party to terminate for convenience on only 30 days' notice, which is asymmetrically short for a Supplier providing warehousing infrastructure; it also omits any wind-down or stranded-cost payment, leaving the Supplier exposed to unrecovered fixed costs if the Customer exits mid-term.",
+        "sample_clause": "Either party may terminate this Agreement for convenience by giving the other not less than 90 days' written notice. Either party may terminate immediately upon written notice if the other commits a material breach and fails to remedy it within 15 business days of receiving written notice of the breach. On termination for convenience by the Customer, the Customer shall pay all fees accrued to the effective termination date plus a wind-down fee equal to one quarter's annual fees.",
+        "negotiation_guidance": "Frame the longer notice period as operationally necessary for a warehousing business (staff, space, inventory transition). If the Customer insists on 30 days, make the wind-down fee non-negotiable. Offer to reduce the wind-down fee to one month's fees if the Customer agrees to 60-day notice. Do not concede both a short notice period and no wind-down fee.",
+        "approval_required": true
+      },
+      {
+        "clause_type": "confidentiality",
+        "rule_type": "standard_position",
+        "preferred_position": "The 3-year post-termination confidentiality period should be retained. Add standard carve-outs (publicly available information, independently developed information, legally compelled disclosure) and clarify that the Customer's inventory data and pricing are the Supplier's confidential information.",
+        "fallback_position": "Accept a 2-year post-termination period if the Customer insists, provided the carve-outs and the definition of Supplier confidential information (pricing, processes) are included.",
+        "prohibited_language": "Any obligation of confidentiality with no time limit or that purports to cover information already in the public domain; any clause that omits a compelled-disclosure carve-out.",
+        "required_language": "Confidential Information excludes information that: (a) is or becomes publicly available through no fault of the receiving party; (b) was already known to the receiving party; (c) is independently developed; or (d) is required to be disclosed by law or court order, provided prompt written notice is given to the disclosing party.",
+        "risk_level": "medium",
+        "rationale": "Section 5 imposes a 3-year post-termination obligation but contains no carve-outs whatsoever, meaning the Supplier could technically be in breach for disclosing information that is already publicly available or that it is legally compelled to disclose, creating unnecessary legal exposure.",
+        "sample_clause": "Each party shall keep the other's Confidential Information strictly confidential and shall not disclose it to any third party for a period of 3 years after termination of this Agreement. This obligation does not apply to information that: (a) is or becomes publicly available other than through breach of this clause; (b) was already known to the receiving party at the time of disclosure; (c) is independently developed by the receiving party without reference to the Confidential Information; or (d) is required to be disclosed by applicable law or court order, provided the receiving party gives prompt prior written notice to the disclosing party.",
+        "negotiation_guidance": "Present the carve-outs as legally standard and non-controversial — most counterparties accept them without pushback. If the Customer seeks a longer confidentiality period (e.g., 5 years), agree only if the carve-outs are included in full. Do not accept perpetual confidentiality obligations.",
+        "approval_required": false
+      }
+    ],
+    "notes": "Contract type: Warehousing Services Agreement. Org side: Supplier (Acme Supplies Ltd). Source document is a single-part, 7-clause agreement governed by Indian law with Mumbai jurisdiction. Exactly 4 rules produced per the instruction cap. All rules are grounded in specific source clauses (§1, §4, §5, §6). Governing law and term/renewal clauses were noted but deprioritised in favour of the four highest-exposure clause types for the Supplier."
+  }
+}

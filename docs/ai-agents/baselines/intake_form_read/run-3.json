@@ -1,0 +1,93 @@
+{
+  "feature": "intake_form_read",
+  "note": "model_output is the tool input the model returned (ledger validated_output), before the code filters it; stored_read is what ai_triage.read keeps.",
+  "request": {
+    "ref": "REQ-4033",
+    "type_label": "New agreement · Services (MSA)",
+    "priority": "Medium",
+    "department": "Procurement",
+    "description": "Their draft has unlimited liability and exclusivity for 3 years. We will push back on both, and they want payment in 15 days.",
+    "field_values": {
+      "gxp": "No",
+      "term": "Fixed end date",
+      "paper": "Their paper",
+      "scope": "Warehousing and last-mile delivery services.",
+      "value": 4500000,
+      "entity": "Aegis Test Pvt Ltd",
+      "purpose": "Their draft has unlimited liability and exclusivity for 3 years. We will push back on both, and they want payment in 15 days.",
+      "currency": "INR",
+      "end_date": "2027-11-30",
+      "entity_id": "80d72ca4-f52b-48ba-ae33-65427ee90b80",
+      "department": "Procurement",
+      "start_date": "2026-12-01",
+      "counterparty": "Northwind Logistics Ltd",
+      "request_form": "new_agreement",
+      "payment_terms": "30 days",
+      "personal_data": "No",
+      "agreement_type": "Services (MSA)",
+      "cp_signer_name": "Anita Desai",
+      "counterparty_id": "64cf2b8c-49d7-4a71-906d-c9ee287c9667",
+      "cp_signer_email": "anita.desai@northwind-logistics.example"
+    }
+  },
+  "ledger": {
+    "id": "f93d99f7-b1bf-42eb-b596-e96a00db74c8",
+    "prompt_key": "intake_form_read",
+    "prompt_version": "1.0.0",
+    "model": "claude-sonnet-4-6",
+    "status": "succeeded",
+    "stop_reason": "tool_use",
+    "prompt_tokens": 1582,
+    "completion_tokens": 343,
+    "total_tokens": 1925,
+    "latency_ms": 8151.450866000232,
+    "created_at": "2026-11-05T12:02:26.460866+00:00"
+  },
+  "model_output": {
+    "summary": "Procurement wants a new MSA with Northwind Logistics Ltd for warehousing and last-mile delivery services, running 1 Dec 2026 – 30 Nov 2027 at INR 4,500,000, using the counterparty's own draft. The requester intends to push back on the counterparty's unlimited liability clause and 3-year exclusivity obligation, and to resist the counterparty's 15-day payment demand (form records 30 days).",
+    "mismatches": [
+      {
+        "field": "payment_terms",
+        "form_says": "30 days",
+        "text_says": "15 days (counterparty's demand per description)",
+        "same": false
+      }
+    ],
+    "bespoke_asks": [
+      "Agreement will be on counterparty (Northwind Logistics Ltd) paper rather than the standard internal template",
+      "Counterparty draft contains a 3-year exclusivity obligation"
+    ],
+    "negotiation_points": [
+      "Liability cap — counterparty draft has unlimited liability; requester will push back",
+      "Exclusivity — counterparty seeks 3-year exclusivity; requester will push back",
+      "Payment terms — counterparty wants 15 days; form records 30 days"
+    ]
+  },
+  "stored_read": {
+    "summary": "Procurement wants a new MSA with Northwind Logistics Ltd for warehousing and last-mile delivery services, running 1 Dec 2026 – 30 Nov 2027 at INR 4,500,000, using the counterparty's own draft. The requester intends to push back on the counterparty's unlimited liability clause and 3-year exclusivity obligation, and to resist the counterparty's 15-day payment demand (form records 30 days).",
+    "mismatches": [
+      "payment_terms: the form says 30 days; the text says 15 days (counterparty's demand per description)"
+    ],
+    "bespoke_asks": [
+      "Agreement will be on counterparty (Northwind Logistics Ltd) paper rather than the standard internal template",
+      "Counterparty draft contains a 3-year exclusivity obligation"
+    ],
+    "negotiation_points": [
+      "Liability cap — counterparty draft has unlimited liability; requester will push back",
+      "Exclusivity — counterparty seeks 3-year exclusivity; requester will push back",
+      "Payment terms — counterparty wants 15 days; form records 30 days"
+    ]
+  },
+  "stored_ai_triage_keys": [
+    "agent_id",
+    "category",
+    "complexity",
+    "confidence",
+    "flow_suggestion",
+    "needs_info",
+    "read",
+    "risk_flag",
+    "source",
+    "understanding"
+  ]
+}

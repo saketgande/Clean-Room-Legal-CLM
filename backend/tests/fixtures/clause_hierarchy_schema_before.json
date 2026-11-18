@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "parent": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "parent"
+        ]
+      }
+    }
+  },
+  "required": [
+    "answers"
+  ]
+}

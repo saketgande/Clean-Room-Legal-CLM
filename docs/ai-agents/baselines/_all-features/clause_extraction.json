@@ -1,0 +1,340 @@
+{
+  "feature": "clause_extraction",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "clauses": [
+      {
+        "clause_type": "payment_terms",
+        "heading": "SERVICES AND FEES",
+        "text": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+        "start_char": 175,
+        "end_char": 370,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 1 – Payment Terms",
+            "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "term_and_termination",
+        "heading": "TERM AND RENEWAL",
+        "text": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+        "start_char": 372,
+        "end_char": 596,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 2 – Term and Renewal",
+            "quote": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "limitation_of_liability",
+        "heading": "LIMITATION OF LIABILITY",
+        "text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+        "start_char": 660,
+        "end_char": 812,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 4 – Limitation of Liability",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "confidentiality",
+        "heading": "CONFIDENTIALITY",
+        "text": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+        "start_char": 814,
+        "end_char": 910,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 5 – Confidentiality",
+            "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "term_and_termination",
+        "heading": "TERMINATION",
+        "text": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+        "start_char": 912,
+        "end_char": 1044,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 6 – Termination",
+            "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "governing_law_and_disputes",
+        "heading": "GOVERNING LAW",
+        "text": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+        "start_char": 1046,
+        "end_char": 1144,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 7 – Governing Law",
+            "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "extraction_notes": "Seven clauses were identified and extracted. Notable deviations from common market standard:\n\n1. LIMITATION OF LIABILITY (§4): The liability cap is set at fees paid in the preceding 12 months, which is standard. However, the exclusion of indirect loss is stated in a single brief sentence with no carve-outs (e.g., no exceptions for fraud, gross negligence, wilful misconduct, death/personal injury, or data breaches). This is narrower than market standard, which typically preserves liability for such matters.\n\n2. CONFIDENTIALITY (§5): The post-termination confidentiality obligation is only 3 years. Market standard for commercial services agreements is often 5 years or perpetual for trade secrets. The clause also lacks a definition of \"confidential information,\" standard exclusions (e.g., publicly available information, independently developed information), and permitted disclosure carve-outs (e.g., disclosure required by law).\n\n3. TERMINATION (§6): The cure period for material breach is only 15 days, which is shorter than the 30-day cure period commonly seen in market-standard agreements.\n\n4. TERM AND RENEWAL (§2): Auto-renewal with a 60-day non-renewal notice window is present but slightly longer than the typical 30–45 day market standard, which may disadvantage the Customer if the notice window is missed.\n\n5. ABSENT CLAUSES (noting truncation risk): No indemnification clause, IP ownership clause, data protection/privacy clause, or assignment clause was found in the supplied text. Given the document appears complete (7 numbered sections with a logical end), the absence of these clauses — particularly indemnification and data protection — is a material gap rather than a truncation artifact. However, the partial_text rule is acknowledged and absence cannot be confirmed with absolute certainty without the full executed document."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "clause_extraction",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1985,
+      "completion_tokens": 1513,
+      "total_tokens": 3498,
+      "latency_ms": 20309.11473499873,
+      "validated_output": {
+        "clauses": [
+          {
+            "clause_type": "payment_terms",
+            "heading": "SERVICES AND FEES",
+            "text": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+            "start_char": 175,
+            "end_char": 370,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 1 – Payment Terms",
+                "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "clause_type": "term_and_termination",
+            "heading": "TERM AND RENEWAL",
+            "text": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "start_char": 372,
+            "end_char": 596,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 2 – Term and Renewal",
+                "quote": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "clause_type": "limitation_of_liability",
+            "heading": "LIMITATION OF LIABILITY",
+            "text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "start_char": 660,
+            "end_char": 812,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 4 – Limitation of Liability",
+                "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "clause_type": "confidentiality",
+            "heading": "CONFIDENTIALITY",
+            "text": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "start_char": 814,
+            "end_char": 910,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 5 – Confidentiality",
+                "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "clause_type": "term_and_termination",
+            "heading": "TERMINATION",
+            "text": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+            "start_char": 912,
+            "end_char": 1044,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 6 – Termination",
+                "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          },
+          {
+            "clause_type": "governing_law_and_disputes",
+            "heading": "GOVERNING LAW",
+            "text": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "start_char": 1046,
+            "end_char": 1144,
+            "confidence": "high",
+            "citations": [
+              {
+                "label": "Section 7 – Governing Law",
+                "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+                "page_number": 1,
+                "start_char": null,
+                "end_char": null
+              }
+            ]
+          }
+        ],
+        "extraction_notes": "Seven clauses were identified and extracted. Notable deviations from common market standard:\n\n1. LIMITATION OF LIABILITY (§4): The liability cap is set at fees paid in the preceding 12 months, which is standard. However, the exclusion of indirect loss is stated in a single brief sentence with no carve-outs (e.g., no exceptions for fraud, gross negligence, wilful misconduct, death/personal injury, or data breaches). This is narrower than market standard, which typically preserves liability for such matters.\n\n2. CONFIDENTIALITY (§5): The post-termination confidentiality obligation is only 3 years. Market standard for commercial services agreements is often 5 years or perpetual for trade secrets. The clause also lacks a definition of \"confidential information,\" standard exclusions (e.g., publicly available information, independently developed information), and permitted disclosure carve-outs (e.g., disclosure required by law).\n\n3. TERMINATION (§6): The cure period for material breach is only 15 days, which is shorter than the 30-day cure period commonly seen in market-standard agreements.\n\n4. TERM AND RENEWAL (§2): Auto-renewal with a 60-day non-renewal notice window is present but slightly longer than the typical 30–45 day market standard, which may disadvantage the Customer if the notice window is missed.\n\n5. ABSENT CLAUSES (noting truncation risk): No indemnification clause, IP ownership clause, data protection/privacy clause, or assignment clause was found in the supplied text. Given the document appears complete (7 numbered sections with a logical end), the absence of these clauses — particularly indemnification and data protection — is a material gap rather than a truncation artifact. However, the partial_text rule is acknowledged and absence cannot be confirmed with absolute certainty without the full executed document."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "clauses": [
+      {
+        "clause_type": "payment_terms",
+        "heading": "SERVICES AND FEES",
+        "text": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+        "start_char": 175,
+        "end_char": 370,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 1 – Payment Terms",
+            "quote": "The Customer shall pay INR 12,00,000 per year, invoiced quarterly. Invoices are payable within 30 days of receipt.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "term_and_termination",
+        "heading": "TERM AND RENEWAL",
+        "text": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+        "start_char": 372,
+        "end_char": 596,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 2 – Term and Renewal",
+            "quote": "This Agreement starts on 1 January 2027 and continues for 12 months. It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "limitation_of_liability",
+        "heading": "LIMITATION OF LIABILITY",
+        "text": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+        "start_char": 660,
+        "end_char": 812,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 4 – Limitation of Liability",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months. Neither party is liable for indirect loss.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "confidentiality",
+        "heading": "CONFIDENTIALITY",
+        "text": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+        "start_char": 814,
+        "end_char": 910,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 5 – Confidentiality",
+            "quote": "Each party shall keep the other's confidential information secret for 3 years after termination.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "term_and_termination",
+        "heading": "TERMINATION",
+        "text": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+        "start_char": 912,
+        "end_char": 1044,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 6 – Termination",
+            "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      {
+        "clause_type": "governing_law_and_disputes",
+        "heading": "GOVERNING LAW",
+        "text": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+        "start_char": 1046,
+        "end_char": 1144,
+        "confidence": "high",
+        "citations": [
+          {
+            "label": "Section 7 – Governing Law",
+            "quote": "This Agreement is governed by the laws of India. The courts of Mumbai have exclusive jurisdiction.",
+            "page_number": 1,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      }
+    ],
+    "extraction_notes": "Seven clauses were identified and extracted. Notable deviations from common market standard:\n\n1. LIMITATION OF LIABILITY (§4): The liability cap is set at fees paid in the preceding 12 months, which is standard. However, the exclusion of indirect loss is stated in a single brief sentence with no carve-outs (e.g., no exceptions for fraud, gross negligence, wilful misconduct, death/personal injury, or data breaches). This is narrower than market standard, which typically preserves liability for such matters.\n\n2. CONFIDENTIALITY (§5): The post-termination confidentiality obligation is only 3 years. Market standard for commercial services agreements is often 5 years or perpetual for trade secrets. The clause also lacks a definition of \"confidential information,\" standard exclusions (e.g., publicly available information, independently developed information), and permitted disclosure carve-outs (e.g., disclosure required by law).\n\n3. TERMINATION (§6): The cure period for material breach is only 15 days, which is shorter than the 30-day cure period commonly seen in market-standard agreements.\n\n4. TERM AND RENEWAL (§2): Auto-renewal with a 60-day non-renewal notice window is present but slightly longer than the typical 30–45 day market standard, which may disadvantage the Customer if the notice window is missed.\n\n5. ABSENT CLAUSES (noting truncation risk): No indemnification clause, IP ownership clause, data protection/privacy clause, or assignment clause was found in the supplied text. Given the document appears complete (7 numbered sections with a logical end), the absence of these clauses — particularly indemnification and data protection — is a material gap rather than a truncation artifact. However, the partial_text rule is acknowledged and absence cannot be confirmed with absolute certainty without the full executed document."
+  }
+}

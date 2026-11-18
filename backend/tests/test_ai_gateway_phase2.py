@@ -166,7 +166,8 @@ def test_trademark_page_without_an_answer_fails_loudly_and_is_recorded():
 
 
 def test_moved_prompts_are_byte_for_byte_what_the_modules_had():
-    """Hashes of the prompt texts as they were hardcoded before Phase 2."""
+    """Hashes of the prompt texts as moved in Phase 2; journal vision and renewal were later trimmed on purpose
+    (their answer-shape block moved into the output model, 2026-11-12), so those two hashes are the trimmed text."""
     import hashlib
 
     expected = json.loads(EXPECTED_HASHES)
@@ -174,4 +175,4 @@ def test_moved_prompts_are_byte_for_byte_what_the_modules_had():
         assert hashlib.sha256(DEFAULT_SKILL_PROMPTS[key].encode()).hexdigest() == digest, key
 
 
-EXPECTED_HASHES = '{"trademark_journal_vision": "854193e062c6c7aff569aaedfa9f69f003c85327fd822068dc0b2be45c3ae953", "renewal_recommendation": "4c2931f4df86fc33c890d68998b659d7e6500ac27276ccf6b67617e9a8d6fb7b", "playbook_expand": "82f5d163c131f5dfcb3b59aa979652c762c2b2c9a1917b3f4f87f99a981560d8"}'
+EXPECTED_HASHES = '{"trademark_journal_vision": "f3306600f6b59820cfda2fe2a5f63c8a3194f499102c81be16064cc7ed18d955", "renewal_recommendation": "8f620b00e0404f54dea98a04954e25c961c8198efe7bf8b5bd4dc97c4316461d", "playbook_expand": "82f5d163c131f5dfcb3b59aa979652c762c2b2c9a1917b3f4f87f99a981560d8"}'

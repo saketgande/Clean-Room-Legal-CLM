@@ -90,6 +90,32 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "management) covers most general business marks when no live classification "
             "was performed.",
         },
+        # Agents whose answer is validated by an output model (app/ai/output_format): an empty {} is no longer a
+        # valid answer, so each needs a minimal valid one. Placeholders only; none claims a real reading.
+        "triage_request": {
+            "category": "General", "complexity": "simple", "risk": "low", "urgency": "Medium",
+            "confidence": 0.5, "reasoning": "Mock Claude mode returned a placeholder triage.", "needs_human": True,
+        },
+        "suggest_flow": {
+            "flow_id": None, "confidence": 0.0, "alternatives": [], "needs_human": True,
+            "reasoning": "Mock Claude mode did not pick a workflow.",
+        },
+        "assess_litigation": {
+            "matter_type": "Litigation / dispute", "legal_hold_required": True, "outside_counsel_likely": True,
+            "settlement_posture": "unknown", "summary": "Mock Claude mode returned a placeholder assessment.",
+            "assessment_confidence": 0.3, "flow_id": None, "flow_confidence": 0.0,
+            "flow_reasoning": "Mock Claude mode did not pick a workflow.",
+        },
+        "extract_notice_fields": {"confidence": 0.0},
+        "read_request": {"summary": "", "mismatches": [], "bespoke_asks": [], "negotiation_points": []},
+        "recommend_renewal": {
+            "decision": "renew", "rationale": "Mock Claude mode returned a placeholder recommendation.",
+            "confidence": "low",
+        },
+        "draft_playbook_rules": {"rules": []},
+        "extract_journal_entries": {"entries": []},
+        "clause_parents": {"answers": []},
+        "classify_email": {"is_clm_related": False, "category": None, "confidence": 0.0},
     }
 
 

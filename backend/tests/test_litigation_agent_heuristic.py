@@ -7,7 +7,8 @@ choice for a badge-only signal, not a fake conditional)."""
 
 import inspect
 
-from app.intake.litigation_agent import _SCHEMA, _heuristic
+from app.ai.output_format.litigation_intake import LitigationIntakeOutput
+from app.intake.litigation_agent import _heuristic
 
 
 def test_heuristic_fallback_always_flags_a_legal_hold_honestly():
@@ -32,4 +33,4 @@ def test_assessment_confidence_is_a_required_schema_field():
     """A model response that omits assessment_confidence must fail validation
     and route through the real failure handler, not silently pass with no
     fact-confidence signal for the flow engine's escalation gate to use."""
-    assert "assessment_confidence" in _SCHEMA["required"]
+    assert "assessment_confidence" in LitigationIntakeOutput.model_json_schema()["required"]

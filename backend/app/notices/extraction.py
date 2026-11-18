@@ -45,73 +45,6 @@ logger = logging.getLogger(__name__)
 # covers both without paying for a 60-page exhibit bundle.
 _MAX_CHARS = 12000
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "counterparty_name": {
-            "type": ["string", "null"],
-            "description": "The party that SENT the notice (or, for an outbound notice, its recipient). Legal entity name as written.",
-        },
-        "counterparty_ref": {
-            "type": ["string", "null"],
-            "description": "The sender's own reference/file number for this notice, if printed on it.",
-        },
-        "notice_type": {
-            "type": ["string", "null"],
-            "enum": [*NOTICE_TYPES, None],
-            "description": "Best-fit category for this notice.",
-        },
-        "subject": {
-            "type": ["string", "null"],
-            "description": "A short factual title, under 120 characters.",
-        },
-        "notice_date": {
-            "type": ["string", "null"],
-            "description": "Date printed on the notice, as YYYY-MM-DD.",
-        },
-        "deadline": {
-            "type": "object",
-            "description": "The notice's own wording of the response deadline. Copy it; never compute a date.",
-            "properties": {
-                "stated": {
-                    "type": "boolean",
-                    "description": "True only when the notice itself writes a deadline (a date or a period). False when none is written or one would come only from a statute or custom.",
-                },
-                "explicit_date": {
-                    "type": ["string", "null"],
-                    "description": "A calendar date the notice writes out as the deadline, as YYYY-MM-DD. Null when it gives a period.",
-                },
-                "period_count": {"type": ["integer", "null"], "minimum": 0},
-                "clear_days": {
-                    "type": "boolean",
-                    "description": "True only when the notice says the days are clear days.",
-                },
-                "period_unit": {"type": ["string", "null"], "enum": [*PERIOD_UNITS, None]},
-                "runs_from": {"type": ["string", "null"], "enum": [*RUNS_FROM, None]},
-                "runs_from_text": {
-                    "type": ["string", "null"],
-                    "description": "What the period runs from, in the notice's words.",
-                },
-                "quote": {
-                    "type": ["string", "null"],
-                    "description": "The sentence that states the deadline.",
-                },
-            },
-            "required": ["stated"],
-        },
-        "demanded_action": {
-            "type": ["string", "null"],
-            "description": "One or two sentences: what the notice demands, and by when.",
-        },
-        "confidence": {
-            "type": "number",
-            "description": "0.0-1.0 — how confident you are overall. Be honest; low for a scanned or partial document.",
-        },
-    },
-    "required": ["confidence"],
-}
-
-
 def _prompt(text: str) -> str:
     return (
         "Extract the register fields from this legal notice.\n\n"
@@ -262,9 +195,9 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "notice_extraction_agent", ctx=AICallContext(org_id=org_id),
-            user_prompt=user_prompt, input_schema=_SCHEMA,
+            user_prompt=user_prompt,
             log_input={"chars": len(text)},
-        ).data
+        ).data.model_dump(mode="json")  # shape: app.ai.output_format.notice_extraction
 
         notice_type = data.get("notice_type")
         if notice_type not in NOTICE_TYPES:

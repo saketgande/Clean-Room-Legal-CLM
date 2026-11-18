@@ -1,0 +1,76 @@
+{
+  "feature": "playbook_chat_build",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "reply": "I've added a payment terms rule with a preferred position of 45 days and a fallback of 30 days.",
+    "suggested_name": "Test Playbook",
+    "rules": [
+      {
+        "clause_type": "payment_terms",
+        "rule_type": "standard_position",
+        "preferred_position": "Payment shall be due within 45 days of receipt of a valid invoice.",
+        "fallback_position": "Payment shall be due within 30 days of receipt of a valid invoice.",
+        "prohibited_language": null,
+        "required_language": null,
+        "risk_level": "medium",
+        "rationale": "A 45-day payment term optimises cash flow; 30 days is the minimum acceptable position to remain competitive and maintain supplier relationships.",
+        "sample_clause": "Invoices shall be payable within 45 days of the invoice date. In no event shall payment terms exceed 45 days unless otherwise agreed in writing by both parties.",
+        "negotiation_guidance": "Push for 45-day terms as the opening position. If the counterparty resists, concede to 30 days as the fallback. Do not agree to payment periods shorter than 30 days without escalation and approval.",
+        "approval_required": false
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "playbook_chat_build",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1763,
+      "completion_tokens": 353,
+      "total_tokens": 2116,
+      "latency_ms": 5992.0197109968285,
+      "validated_output": {
+        "reply": "I've added a payment terms rule with a preferred position of 45 days and a fallback of 30 days.",
+        "suggested_name": "Test Playbook",
+        "rules": [
+          {
+            "clause_type": "payment_terms",
+            "rule_type": "standard_position",
+            "preferred_position": "Payment shall be due within 45 days of receipt of a valid invoice.",
+            "fallback_position": "Payment shall be due within 30 days of receipt of a valid invoice.",
+            "prohibited_language": null,
+            "required_language": null,
+            "risk_level": "medium",
+            "rationale": "A 45-day payment term optimises cash flow; 30 days is the minimum acceptable position to remain competitive and maintain supplier relationships.",
+            "sample_clause": "Invoices shall be payable within 45 days of the invoice date. In no event shall payment terms exceed 45 days unless otherwise agreed in writing by both parties.",
+            "negotiation_guidance": "Push for 45-day terms as the opening position. If the counterparty resists, concede to 30 days as the fallback. Do not agree to payment periods shorter than 30 days without escalation and approval.",
+            "approval_required": false
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "reply": "I've added a payment terms rule with a preferred position of 45 days and a fallback of 30 days.",
+    "suggested_name": "Test Playbook",
+    "rules": [
+      {
+        "clause_type": "payment_terms",
+        "rule_type": "standard_position",
+        "preferred_position": "Payment shall be due within 45 days of receipt of a valid invoice.",
+        "fallback_position": "Payment shall be due within 30 days of receipt of a valid invoice.",
+        "prohibited_language": null,
+        "required_language": null,
+        "risk_level": "medium",
+        "rationale": "A 45-day payment term optimises cash flow; 30 days is the minimum acceptable position to remain competitive and maintain supplier relationships.",
+        "sample_clause": "Invoices shall be payable within 45 days of the invoice date. In no event shall payment terms exceed 45 days unless otherwise agreed in writing by both parties.",
+        "negotiation_guidance": "Push for 45-day terms as the opening position. If the counterparty resists, concede to 30 days as the fallback. Do not agree to payment periods shorter than 30 days without escalation and approval.",
+        "approval_required": false
+      }
+    ]
+  }
+}
