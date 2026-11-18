@@ -1,0 +1,35 @@
+{
+  "feature": "renewal_recommendation",
+  "kind": "task",
+  "returned_by_app_function": {
+    "decision": "renegotiate",
+    "rationale": "At $1.2M annual value and medium risk, this contract warrants improved terms before renewal rather than a straight rollover; critically, the notice deadline is only 22 days away, making it urgent to engage Acme Supplies Ltd immediately to preserve renegotiation leverage before that window closes.",
+    "confidence": "medium",
+    "generated": true
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "renewal_recommendation",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 921,
+      "completion_tokens": 133,
+      "total_tokens": 1054,
+      "latency_ms": 3438.2900779964984,
+      "validated_output": {
+        "decision": "renegotiate",
+        "rationale": "At $1.2M annual value and medium risk, this contract warrants improved terms before renewal rather than a straight rollover; critically, the notice deadline is only 22 days away, making it urgent to engage Acme Supplies Ltd immediately to preserve renegotiation leverage before that window closes.",
+        "confidence": "medium"
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "decision": "renegotiate",
+    "rationale": "At $1.2M annual value and medium risk, this contract warrants improved terms before renewal rather than a straight rollover; critically, the notice deadline is only 22 days away, making it urgent to engage Acme Supplies Ltd immediately to preserve renegotiation leverage before that window closes.",
+    "confidence": "medium"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "feature": "plain_language_summary",
+  "kind": "agent",
+  "returned_by_app_function": "This contract is broadly fine to move forward with, but there are a couple of points worth flagging before you sign.\n\n• **Your exposure is capped, but only on your side.** The contract limits how much either party can claim to 12 months' worth of fees — that's actually reasonable protection for us. The only wrinkle is that the cap currently only applies to us, not to Acme. Ideally both sides should be equally limited, so we'd want to push for that to be mutual.\n\n• **We'd be paying a little faster than usual.** The contract asks for payment within 30 days of an invoice, whereas we normally work to 45 days. It's a low-stakes difference, but worth a quick ask to bring it in line with our standard terms — it helps our cash flow.\n\n**Next step:** Send these two points to your legal or contracts team and ask them to request a mutual liability cap and 45-day payment terms before countersigning — both are straightforward asks that Acme should be comfortable with.",
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "plain_language_summary",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "end_turn",
+      "prompt_tokens": 288,
+      "completion_tokens": 230,
+      "total_tokens": 518,
+      "latency_ms": 7197.993801004486,
+      "validated_output": {
+        "text": "This contract is broadly fine to move forward with, but there are a couple of points worth flagging before you sign.\n\n• **Your exposure is capped, but only on your side.** The contract limits how much either party can claim to 12 months' worth of fees — that's actually reasonable protection for us. The only wrinkle is that the cap currently only applies to us, not to Acme. Ideally both sides should be equally limited, so we'd want to push for that to be mutual.\n\n• **We'd be paying a little faster than usual.** The contract asks for payment within 30 days of an invoice, whereas we normally work to 45 days. It's a low-stakes difference, but worth a quick ask to bring it in line with our standard terms — it helps our cash flow.\n\n**Next step:** Send these two points to your legal or contracts team and ask them to request a mutual liability cap and 45-day payment terms before countersigning — both are straightforward asks that Acme should be comfortable with."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "text": "This contract is broadly fine to move forward with, but there are a couple of points worth flagging before you sign.\n\n• **Your exposure is capped, but only on your side.** The contract limits how much either party can claim to 12 months' worth of fees — that's actually reasonable protection for us. The only wrinkle is that the cap currently only applies to us, not to Acme. Ideally both sides should be equally limited, so we'd want to push for that to be mutual.\n\n• **We'd be paying a little faster than usual.** The contract asks for payment within 30 days of an invoice, whereas we normally work to 45 days. It's a low-stakes difference, but worth a quick ask to bring it in line with our standard terms — it helps our cash flow.\n\n**Next step:** Send these two points to your legal or contracts team and ask them to request a mutual liability cap and 45-day payment terms before countersigning — both are straightforward asks that Acme should be comfortable with."
+  }
+}

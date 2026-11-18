@@ -1,0 +1,67 @@
+{
+  "feature": "playbook_recommendations",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "recommendations": [
+      {
+        "clause_type": "payment_terms",
+        "rule_id": "r1",
+        "change_summary": "Align the preferred position from 45 days to 30 days, reflecting the organization's actual acceptance pattern.",
+        "proposed_preferred_position": "30 days",
+        "proposed_fallback_position": null,
+        "proposed_negotiation_guidance": "Open at 30 days as the preferred position, since the 45-day ask has been conceded in 6 of 8 past decisions. If counterparty pushes back, consider whether any further concession is warranted on a case-by-case basis and escalate accordingly.",
+        "rationale": "The preferred position of 45 days was conceded 6 of 8 times (2 accepted at preferred, 4 accepted_fallback at 30 days, 2 rejected). The organization consistently settled at the 30-day fallback, indicating the 45-day preferred position is stricter than what is realistically achieved in negotiations. Aligning the preferred position to 30 days would reflect actual practice. Note: this change makes the organization LESS protected, as it removes the buffer of negotiating from a more favorable starting point. A lawyer should review before adopting.",
+        "risk_direction": "less_protected",
+        "confidence": "high"
+      }
+    ],
+    "summary": "One high-confidence recommendation is proposed for rule r1 (Payment Terms). The preferred position of 45 days has been conceded 6 of 8 times in practice, with the organization consistently landing at the 30-day fallback. Aligning the preferred position to 30 days would reflect actual negotiation outcomes, though this makes the organization less protected by narrowing the opening negotiating position. Legal review is required before any change is adopted."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "playbook_recommendations",
+      "prompt_version": "1.0.1",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1746,
+      "completion_tokens": 462,
+      "total_tokens": 2208,
+      "latency_ms": 9881.777773000067,
+      "validated_output": {
+        "recommendations": [
+          {
+            "clause_type": "payment_terms",
+            "rule_id": "r1",
+            "change_summary": "Align the preferred position from 45 days to 30 days, reflecting the organization's actual acceptance pattern.",
+            "proposed_preferred_position": "30 days",
+            "proposed_fallback_position": null,
+            "proposed_negotiation_guidance": "Open at 30 days as the preferred position, since the 45-day ask has been conceded in 6 of 8 past decisions. If counterparty pushes back, consider whether any further concession is warranted on a case-by-case basis and escalate accordingly.",
+            "rationale": "The preferred position of 45 days was conceded 6 of 8 times (2 accepted at preferred, 4 accepted_fallback at 30 days, 2 rejected). The organization consistently settled at the 30-day fallback, indicating the 45-day preferred position is stricter than what is realistically achieved in negotiations. Aligning the preferred position to 30 days would reflect actual practice. Note: this change makes the organization LESS protected, as it removes the buffer of negotiating from a more favorable starting point. A lawyer should review before adopting.",
+            "risk_direction": "less_protected",
+            "confidence": "high"
+          }
+        ],
+        "summary": "One high-confidence recommendation is proposed for rule r1 (Payment Terms). The preferred position of 45 days has been conceded 6 of 8 times in practice, with the organization consistently landing at the 30-day fallback. Aligning the preferred position to 30 days would reflect actual negotiation outcomes, though this makes the organization less protected by narrowing the opening negotiating position. Legal review is required before any change is adopted."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "recommendations": [
+      {
+        "clause_type": "payment_terms",
+        "rule_id": "r1",
+        "change_summary": "Align the preferred position from 45 days to 30 days, reflecting the organization's actual acceptance pattern.",
+        "proposed_preferred_position": "30 days",
+        "proposed_fallback_position": null,
+        "proposed_negotiation_guidance": "Open at 30 days as the preferred position, since the 45-day ask has been conceded in 6 of 8 past decisions. If counterparty pushes back, consider whether any further concession is warranted on a case-by-case basis and escalate accordingly.",
+        "rationale": "The preferred position of 45 days was conceded 6 of 8 times (2 accepted at preferred, 4 accepted_fallback at 30 days, 2 rejected). The organization consistently settled at the 30-day fallback, indicating the 45-day preferred position is stricter than what is realistically achieved in negotiations. Aligning the preferred position to 30 days would reflect actual practice. Note: this change makes the organization LESS protected, as it removes the buffer of negotiating from a more favorable starting point. A lawyer should review before adopting.",
+        "risk_direction": "less_protected",
+        "confidence": "high"
+      }
+    ],
+    "summary": "One high-confidence recommendation is proposed for rule r1 (Payment Terms). The preferred position of 45 days has been conceded 6 of 8 times in practice, with the organization consistently landing at the 30-day fallback. Aligning the preferred position to 30 days would reflect actual negotiation outcomes, though this makes the organization less protected by narrowing the opening negotiating position. Legal review is required before any change is adopted."
+  }
+}

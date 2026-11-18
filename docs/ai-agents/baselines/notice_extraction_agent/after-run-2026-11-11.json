@@ -1,0 +1,36 @@
+{
+  "feature": "notice_extraction_agent",
+  "run": "after output model + trimmed prompt (1.1.0)",
+  "request": "Acme demand notice text through NoticesService.extract_from_upload (the Upload box's service; route skipped, known unfixed bug)",
+  "ledger": {
+    "prompt_version": "1.1.0",
+    "prompt_tokens": 648,
+    "completion_tokens": 356,
+    "latency_ms": 6553,
+    "status": "succeeded",
+    "stop_reason": "tool_use"
+  },
+  "before": {
+    "prompt_tokens": 648,
+    "completion_tokens": 338
+  },
+  "model_output": {
+    "counterparty_name": "Acme Components Ltd",
+    "counterparty_ref": "ACM/LGL/2026/114",
+    "notice_type": "demand",
+    "notice_date": "2026-11-02",
+    "deadline": {
+      "stated": true,
+      "explicit_date": null,
+      "period_count": 15,
+      "period_unit": "days",
+      "runs_from": "receipt",
+      "clear_days": false
+    },
+    "confidence": 0.95
+  },
+  "deadline_preview": {
+    "due": "2026-11-26",
+    "formula": "received Wed 11 Nov 2026 + 15 days"
+  }
+}

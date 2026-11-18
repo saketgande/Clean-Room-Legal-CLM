@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "properties": {
+    "flow_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "id of the single best-fit flow from the catalog, or null if none fits"
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0..1 confidence in the pick"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "one or two sentences, plain English"
+    },
+    "alternatives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "flow_id": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_id",
+          "why"
+        ]
+      }
+    },
+    "needs_human": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "flow_id",
+    "confidence",
+    "reasoning",
+    "needs_human"
+  ]
+}

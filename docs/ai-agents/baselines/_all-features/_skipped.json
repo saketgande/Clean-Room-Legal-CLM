@@ -1,0 +1,7 @@
+{
+  "trademark_journal_vision": "needs a journal page image; run it from Trademarks -> Document extraction with one real page",
+  "assistant_streaming": "is the Ask Aegis chat loop with tools; run it with one real question in Ask Aegis",
+  "intake_form_read": "already captured (3 runs)",
+  "clause_labeling": "already captured (1 run)",
+  "contract_metadata_extraction": "already captured (1 run)"
+}

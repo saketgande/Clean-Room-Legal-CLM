@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "clause_type": {
+            "type": "string"
+          },
+          "preferred_position": {
+            "type": "string"
+          },
+          "fallback_position": {
+            "type": "string"
+          },
+          "prohibited_language": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "approval_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clause_type",
+          "preferred_position",
+          "risk_level",
+          "rationale"
+        ]
+      }
+    }
+  },
+  "required": [
+    "rules"
+  ]
+}

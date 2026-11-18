@@ -75,26 +75,6 @@ _SHORT_HINTS = {"nda", "msa", "sow"}
 _CATEGORIES = ("NDA", "Litigation", "Privacy", "Trademark", "Vendor",
                "Contract Review", "Policy/FAQ", "General")
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "is_clm_related": {
-            "type": "boolean",
-            "description": "True for a genuine legal/contract matter for an in-house legal team. False for "
-                           "newsletters, marketing, personal correspondence, receipts, or anything not actually "
-                           "a legal request.",
-        },
-        "category": {
-            "type": ["string", "null"],
-            "enum": [*_CATEGORIES, None],
-            "description": "Best-fit category when is_clm_related is true; null when false.",
-        },
-        "confidence": {"type": "number", "description": "0.0-1.0 confidence in this classification."},
-    },
-    "required": ["is_clm_related", "category", "confidence"],
-}
-
-
 def _heuristic_is_clm_related(subject: str, body: str, attachment_filenames: list[str]) -> bool:
     """Deterministic keyword/filename check — used under mock mode or when
     the LLM call fails."""
@@ -133,9 +113,9 @@ def _llm_classify(db: Session, org_id: str, subject: str, text: str, *, claude_c
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "email_triage_agent", ctx=AICallContext(org_id=org_id),
-            user_prompt=user_prompt, input_schema=_SCHEMA,
+            user_prompt=user_prompt,
             log_input={"user_prompt": user_prompt},
-        ).data
+        ).data.model_dump(mode="json")  # shape: app.ai.output_format.email_triage
         category = data.get("category")
         if category not in _CATEGORIES:
             category = None

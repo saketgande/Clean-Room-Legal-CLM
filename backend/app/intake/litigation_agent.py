@@ -91,35 +91,6 @@ def _heuristic(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict
     }
 
 
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "matter_type": {"type": "string"},
-        "statutory_deadlines": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"what": {"type": "string"}, "date": {"type": "string"}, "source": {"type": "string"}},
-            "required": ["what"]}},
-        "legal_hold_required": {"type": "boolean"},
-        "outside_counsel_likely": {"type": "boolean"},
-        "settlement_posture": {"type": "string", "enum": ["none", "proposed", "likely"]},
-        "key_parties": {"type": "array", "items": {"type": "string"}},
-        "summary": {"type": "string"},
-        "assessment_confidence": {
-            "type": "number",
-            "description": "0-1: confidence in the EXTRACTED FACTS above (matter type, deadlines, "
-                           "hold/counsel calls), by how much concrete detail the request gives — "
-                           "distinct from flow_confidence, which is only about the workflow pick.",
-        },
-        "flow_id": {"type": ["string", "null"], "description": "best-fit flow id from the catalog"},
-        "flow_confidence": {"type": "number"},
-        "flow_reasoning": {"type": "string"},
-    },
-    "required": ["matter_type", "legal_hold_required", "outside_counsel_likely",
-                 "settlement_posture", "summary", "assessment_confidence",
-                 "flow_id", "flow_confidence", "flow_reasoning"],
-}
-
-
 def _prompt(request: IntakeRequest, catalog: list[dict]) -> str:
     lines = ["WORKFLOW CATALOG (choose exactly one id, or null):"]
     for c in catalog:
@@ -152,9 +123,9 @@ def assess_litigation(db: Session, request: IntakeRequest, *, claude_client=None
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "litigation_intake_agent", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
-            user_prompt=user_prompt, input_schema=_SCHEMA,
+            user_prompt=user_prompt,
             log_input={"user_prompt": user_prompt},
-        ).data
+        ).data.model_dump(mode="json")  # shape: app.ai.output_format.litigation_intake
 
         fid = data.get("flow_id")
         if fid not in ids:

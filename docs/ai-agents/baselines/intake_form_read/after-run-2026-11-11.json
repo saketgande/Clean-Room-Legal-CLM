@@ -1,0 +1,18 @@
+{
+  "feature": "intake_form_read",
+  "run": "after output model + trimmed prompt (1.1.0)",
+  "request": "REQ-4032 (NDA form, text says supply agreement)",
+  "ledger": {
+    "prompt_version": "1.1.0",
+    "prompt_tokens": 732,
+    "completion_tokens": 353,
+    "latency_ms": 8293,
+    "status": "succeeded",
+    "stop_reason": "tool_use"
+  },
+  "before": {
+    "prompt_tokens": 1522,
+    "completion_tokens": 321
+  },
+  "model_output": "two real mismatches (agreement_type, value), 2 bespoke asks, 2 negotiation points - same four keys as before; stored on REQ-4032 ai_triage.read"
+}

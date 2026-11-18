@@ -21,6 +21,10 @@ from app.core.database import new_uuid
 from app.core.models import AICallLog
 from app.integrations import claude
 from app.integrations.claude import ClaudeClient
+from tests._stub_agent import (  # noqa: F401  (autouse fixture: pytest finds it by being imported)
+    STUB_DICT_AGENT,
+    dict_agent_registered,
+)
 from tests.exam_fake_anthropic import batch_result, install
 from tests.test_ai_gateway import (  # noqa: F401 — the autouse fixture applies here too
     CTX,
@@ -374,7 +378,7 @@ def test_record_call_writes_the_exam_run_id_and_defaults_to_none():
         db = FakeSession()
         ctx = AICallContext(org_id="org-1", eval_run_id=eval_run_id) if eval_run_id else AICallContext(org_id="org-1")
         AIGateway(provider=FakeProvider(_response(tool="suggest_flow", tool_input={}))).structured_sync(
-            db, "flow_router", ctx=ctx, user_prompt="x", input_schema={}
+            db, STUB_DICT_AGENT, ctx=ctx, user_prompt="x", input_schema={}
         )
         assert db.rows[0].eval_run_id == eval_run_id
     assert AICallContext(org_id="o").eval_run_id is None

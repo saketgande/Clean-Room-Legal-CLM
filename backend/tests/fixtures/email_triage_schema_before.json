@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "is_clm_related": {
+      "type": "boolean",
+      "description": "True for a genuine legal/contract matter for an in-house legal team. False for newsletters, marketing, personal correspondence, receipts, or anything not actually a legal request."
+    },
+    "category": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "NDA",
+        "Litigation",
+        "Privacy",
+        "Trademark",
+        "Vendor",
+        "Contract Review",
+        "Policy/FAQ",
+        "General",
+        null
+      ],
+      "description": "Best-fit category when is_clm_related is true; null when false."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0.0-1.0 confidence in this classification."
+    }
+  },
+  "required": [
+    "is_clm_related",
+    "category",
+    "confidence"
+  ]
+}

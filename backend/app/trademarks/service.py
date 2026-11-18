@@ -65,18 +65,6 @@ from app.trademarks.schemas import (
 # prompt-table override, the untrusted-input guard, the per-org token cap and
 # an AI-ledger row. Their prompts live in app/ai/prompt_versions.py.
 
-_CLASSIFY_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "nice_class": {
-            "type": "string",
-            "description": "The single best-fit class number, 1-45, as a string.",
-        },
-        "reasoning": {"type": "string", "description": "One short, concrete sentence."},
-    },
-    "required": ["nice_class", "reasoning"],
-}
-
 _CLASSIFY_CACHE_TTL_SECONDS = 600  # 10 min — matches the typing-pause debounce reuse window
 _EXPLAIN_CACHE_TTL_SECONDS = 60 * 60 * 24  # 24h — the same facts always produce the same explanation
 _DIGEST_LOOKBACK_HOURS = 24
@@ -655,14 +643,13 @@ class TrademarksService:
                 "trademark_class_suggest",
                 ctx=AICallContext(org_id=org_id, user_id=user_id),
                 user_prompt=f'Trademark name: "{request.name}"\nDescription: "{request.description}"',
-                input_schema=_CLASSIFY_INPUT_SCHEMA,
                 log_input={"name_chars": len(request.name), "description_chars": len(request.description)},
             )
         except AIOutputInvalid as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Classifier returned no result") from exc
         parsed = result.data
-        nice_class = str(parsed.get("nice_class", "")).strip()
-        reasoning = str(parsed.get("reasoning", "")).strip()
+        nice_class = parsed.nice_class.strip()
+        reasoning = parsed.reasoning.strip()
         if nice_class not in VALID_NICE_CLASSES:
             raise HTTPException(
                 status.HTTP_502_BAD_GATEWAY, f"Classifier returned an invalid class number: {nice_class!r}"

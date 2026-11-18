@@ -1,0 +1,205 @@
+{
+  "feature": "renewal_extraction",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "term_kind": "fixed",
+    "stated_end_date": null,
+    "stated_end_date_quote": null,
+    "initial_term": {
+      "number": 12,
+      "unit": "months",
+      "counted_from": "effective_date"
+    },
+    "auto_renews": true,
+    "renewal_term": {
+      "number": 12,
+      "unit": "months"
+    },
+    "max_renewals": null,
+    "notice_terms": [
+      {
+        "kind": "non_renewal",
+        "who": "either",
+        "number": 60,
+        "unit": "days",
+        "clear_days": false,
+        "counted": "before_end_of_term",
+        "quote": "unless either party gives 60 days' written notice of non-renewal before the end of the then-current term"
+      },
+      {
+        "kind": "termination_for_convenience",
+        "who": "either",
+        "number": 30,
+        "unit": "days",
+        "clear_days": false,
+        "counted": "other",
+        "quote": "Either party may terminate for convenience on 30 days' written notice"
+      }
+    ],
+    "termination_rights_summary": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days. Either party may also prevent automatic renewal by giving 60 days' written notice of non-renewal before the end of the then-current term.",
+    "confidence": "high",
+    "needs_review": false,
+    "citations": [
+      {
+        "label": "initial_term",
+        "quote": "This Agreement starts on 1 January 2027 and continues for 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "auto_renews + renewal_term + non_renewal_notice",
+        "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "termination_for_convenience + breach_cure",
+        "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "renewal_extraction",
+      "prompt_version": "2.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1319,
+      "completion_tokens": 688,
+      "total_tokens": 2007,
+      "latency_ms": 7614.047349001339,
+      "validated_output": {
+        "term_kind": "fixed",
+        "stated_end_date": null,
+        "stated_end_date_quote": null,
+        "initial_term": {
+          "number": 12,
+          "unit": "months",
+          "counted_from": "effective_date"
+        },
+        "auto_renews": true,
+        "renewal_term": {
+          "number": 12,
+          "unit": "months"
+        },
+        "max_renewals": null,
+        "notice_terms": [
+          {
+            "kind": "non_renewal",
+            "who": "either",
+            "number": 60,
+            "unit": "days",
+            "clear_days": false,
+            "counted": "before_end_of_term",
+            "quote": "unless either party gives 60 days' written notice of non-renewal before the end of the then-current term"
+          },
+          {
+            "kind": "termination_for_convenience",
+            "who": "either",
+            "number": 30,
+            "unit": "days",
+            "clear_days": false,
+            "counted": "other",
+            "quote": "Either party may terminate for convenience on 30 days' written notice"
+          }
+        ],
+        "termination_rights_summary": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days. Either party may also prevent automatic renewal by giving 60 days' written notice of non-renewal before the end of the then-current term.",
+        "confidence": "high",
+        "needs_review": false,
+        "citations": [
+          {
+            "label": "initial_term",
+            "quote": "This Agreement starts on 1 January 2027 and continues for 12 months.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "auto_renews + renewal_term + non_renewal_notice",
+            "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "termination_for_convenience + breach_cure",
+            "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "term_kind": "fixed",
+    "stated_end_date": null,
+    "stated_end_date_quote": null,
+    "initial_term": {
+      "number": 12,
+      "unit": "months",
+      "counted_from": "effective_date"
+    },
+    "auto_renews": true,
+    "renewal_term": {
+      "number": 12,
+      "unit": "months"
+    },
+    "max_renewals": null,
+    "notice_terms": [
+      {
+        "kind": "non_renewal",
+        "who": "either",
+        "number": 60,
+        "unit": "days",
+        "clear_days": false,
+        "counted": "before_end_of_term",
+        "quote": "unless either party gives 60 days' written notice of non-renewal before the end of the then-current term"
+      },
+      {
+        "kind": "termination_for_convenience",
+        "who": "either",
+        "number": 30,
+        "unit": "days",
+        "clear_days": false,
+        "counted": "other",
+        "quote": "Either party may terminate for convenience on 30 days' written notice"
+      }
+    ],
+    "termination_rights_summary": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days. Either party may also prevent automatic renewal by giving 60 days' written notice of non-renewal before the end of the then-current term.",
+    "confidence": "high",
+    "needs_review": false,
+    "citations": [
+      {
+        "label": "initial_term",
+        "quote": "This Agreement starts on 1 January 2027 and continues for 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "auto_renews + renewal_term + non_renewal_notice",
+        "quote": "It renews automatically for further 12-month terms unless either party gives 60 days' written notice of non-renewal before the end of the then-current term.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "termination_for_convenience + breach_cure",
+        "quote": "Either party may terminate for convenience on 30 days' written notice, or immediately for material breach not cured within 15 days.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ]
+  }
+}

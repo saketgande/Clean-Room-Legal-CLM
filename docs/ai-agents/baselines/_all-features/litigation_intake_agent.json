@@ -1,0 +1,109 @@
+{
+  "feature": "litigation_intake_agent",
+  "kind": "agent",
+  "returned_by_app_function": {
+    "matter_type": "Contract Dispute / Legal Notice — Alleged Breach of Supply Agreement",
+    "statutory_deadlines": [
+      {
+        "what": "Reply to legal notice / payment of INR 15 lakh demanded",
+        "date": "15 days from date of receipt of notice",
+        "source": "Demand notice from Acme's counsel (specific calendar date depends on confirmed receipt date)"
+      },
+      {
+        "what": "Limitation period to file suit (if no reply / resolution)",
+        "date": "3 years from date of breach",
+        "source": "Limitation Act, 1963 — Article 55 (breach of contract)"
+      }
+    ],
+    "legal_hold_required": true,
+    "outside_counsel_likely": true,
+    "settlement_posture": "likely",
+    "key_parties": [
+      "Our Company (Respondent)",
+      "Acme (Claimant / Notice Sender)",
+      "Acme's Counsel (Notice Issuer)"
+    ],
+    "summary": "We received a legal notice from Acme's counsel demanding INR 15 lakh within 15 days of receipt, threatening suit in the Delhi High Court for alleged breach of the supply agreement dated 3 March 2025. A hard reply deadline exists (15 days from receipt of notice). A legal hold over supply agreement records and related communications is required immediately. Outside counsel engagement is likely given",
+    "assessment_confidence": 0.78,
+    "flow_suggestion": {
+      "flow_id": "5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0",
+      "flow_name": "Legal Notice Response",
+      "confidence": 0.93,
+      "reasoning": "The request is a statutory/demand notice with a hard reply deadline (15 days) and a threatened suit — a textbook fit for the Legal Notice Response workflow (id=5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0), which is purpose-built to extract deadlines, engage counsel, and finalize a response. The Patent/ANDA Litigation flow is pharma-specific and inapplicable here.",
+      "alternatives": [],
+      "needs_human": false,
+      "source": "llm"
+    }
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "litigation_intake_agent",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 4743,
+      "completion_tokens": 635,
+      "total_tokens": 5378,
+      "latency_ms": 13441.553204000229,
+      "validated_output": {
+        "matter_type": "Contract Dispute / Legal Notice — Alleged Breach of Supply Agreement",
+        "legal_hold_required": true,
+        "outside_counsel_likely": true,
+        "settlement_posture": "likely",
+        "summary": "We received a legal notice from Acme's counsel demanding INR 15 lakh within 15 days of receipt, threatening suit in the Delhi High Court for alleged breach of the supply agreement dated 3 March 2025. A hard reply deadline exists (15 days from receipt of notice). A legal hold over supply agreement records and related communications is required immediately. Outside counsel engagement is likely given the Delhi High Court threat. Settlement is likely given the specific monetary demand.",
+        "assessment_confidence": 0.78,
+        "flow_id": "5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0",
+        "flow_confidence": 0.93,
+        "flow_reasoning": "The request is a statutory/demand notice with a hard reply deadline (15 days) and a threatened suit — a textbook fit for the Legal Notice Response workflow (id=5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0), which is purpose-built to extract deadlines, engage counsel, and finalize a response. The Patent/ANDA Litigation flow is pharma-specific and inapplicable here.",
+        "key_parties": [
+          "Our Company (Respondent)",
+          "Acme (Claimant / Notice Sender)",
+          "Acme's Counsel (Notice Issuer)"
+        ],
+        "statutory_deadlines": [
+          {
+            "what": "Reply to legal notice / payment of INR 15 lakh demanded",
+            "date": "15 days from date of receipt of notice",
+            "source": "Demand notice from Acme's counsel (specific calendar date depends on confirmed receipt date)"
+          },
+          {
+            "what": "Limitation period to file suit (if no reply / resolution)",
+            "date": "3 years from date of breach",
+            "source": "Limitation Act, 1963 — Article 55 (breach of contract)"
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "matter_type": "Contract Dispute / Legal Notice — Alleged Breach of Supply Agreement",
+    "legal_hold_required": true,
+    "outside_counsel_likely": true,
+    "settlement_posture": "likely",
+    "summary": "We received a legal notice from Acme's counsel demanding INR 15 lakh within 15 days of receipt, threatening suit in the Delhi High Court for alleged breach of the supply agreement dated 3 March 2025. A hard reply deadline exists (15 days from receipt of notice). A legal hold over supply agreement records and related communications is required immediately. Outside counsel engagement is likely given the Delhi High Court threat. Settlement is likely given the specific monetary demand.",
+    "assessment_confidence": 0.78,
+    "flow_id": "5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0",
+    "flow_confidence": 0.93,
+    "flow_reasoning": "The request is a statutory/demand notice with a hard reply deadline (15 days) and a threatened suit — a textbook fit for the Legal Notice Response workflow (id=5bbf8bf1-f0ed-4c16-93c4-968fbf9587a0), which is purpose-built to extract deadlines, engage counsel, and finalize a response. The Patent/ANDA Litigation flow is pharma-specific and inapplicable here.",
+    "key_parties": [
+      "Our Company (Respondent)",
+      "Acme (Claimant / Notice Sender)",
+      "Acme's Counsel (Notice Issuer)"
+    ],
+    "statutory_deadlines": [
+      {
+        "what": "Reply to legal notice / payment of INR 15 lakh demanded",
+        "date": "15 days from date of receipt of notice",
+        "source": "Demand notice from Acme's counsel (specific calendar date depends on confirmed receipt date)"
+      },
+      {
+        "what": "Limitation period to file suit (if no reply / resolution)",
+        "date": "3 years from date of breach",
+        "source": "Limitation Act, 1963 — Article 55 (breach of contract)"
+      }
+    ]
+  }
+}

@@ -20,48 +20,20 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.output_format.intake_triage import Category, Complexity, Risk, Urgency
 from app.intake.agreement_forms import answer_text
 from app.intake.models import IntakeDocument, IntakeRequest
 
 logger = logging.getLogger(__name__)
 
-# Categories the rest of the system already understands (agents._CATEGORY_METADATA).
-_CATEGORIES = ["NDA", "Litigation", "Privacy", "Trademark", "Vendor", "Contract Review", "Policy/FAQ", "General"]
-_COMPLEXITY = ["simple", "standard", "complex"]
-_RISK = ["low", "medium", "high"]
-_URGENCY = ["Low", "Medium", "High"]
+# The allowed values live with the output model (app/ai/output_format/intake_triage.py), so what Claude is told
+# and what this module checks cannot drift apart.
+_CATEGORIES = [c.value for c in Category]
+_COMPLEXITY = [c.value for c in Complexity]
+_RISK = [r.value for r in Risk]
+_URGENCY = [u.value for u in Urgency]
 # Below this the pick is shown but flagged for a human's eye.
 _CONFIDENT = 0.6
-
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "category": {"type": "string", "enum": _CATEGORIES,
-                     "description": "the single best-fit matter type, judged by meaning not keywords. NDA: confidentiality agreements. Vendor: buying goods/services from a supplier on our paper. Contract Review: any other agreement to draft or review (MSA, SoW, amendment, renewal, counterparty paper). Privacy: DPAs, data incidents, privacy questions. Litigation: disputes, claims, notices of breach, court papers. Trademark: marks and brand. Policy/FAQ: a question about a policy or how to do something. General: anything else"},
-        "sub_type": {"type": ["string", "null"],
-                     "description": "the specific flavour, e.g. 'custom NDA (no template)', 'standard mutual NDA', 'MSA', 'DPA'"},
-        "complexity": {"type": "string", "enum": _COMPLEXITY,
-                       "description": "judge from the ACTUAL request — deal value, bespoke terms, multi-party, cross-border all raise it; do not default by matter type"},
-        "risk": {"type": "string", "enum": _RISK},
-        "urgency": {"type": "string", "enum": _URGENCY,
-                    "description": "how time-critical the requester makes it sound"},
-        "business_unit": {"type": ["string", "null"], "description": "the requesting business unit / department if stated or inferable"},
-        "estimated_value": {"type": ["number", "null"], "description": "the deal/contract value as stated (in its own currency, do not convert), else null"},
-        "jurisdiction": {"type": ["string", "null"], "description": "governing law / country if stated"},
-        "key_asks": {"type": "array", "items": {"type": "string"},
-                     "description": "what the requester actually wants, in plain terms (e.g. 'draft a custom NDA, do not use the standard template')"},
-        "missing_info": {"type": "array", "items": {"type": "string"},
-                         "description": "CRITICAL facts this matter type needs to be drafted or handled properly that the request does NOT provide — e.g. 'counterparty legal name', 'what the agreement is for'. Only facts WITHOUT which no one could start the work; anything negotiable or with a standard default (term, governing law, value) is NOT missing. Usually empty."},
-        "recommended_workflow_id": {"type": ["string", "null"],
-                                    "description": "id of the single best-fit workflow from the catalog, or null if none fits or a human should route it"},
-        "workflow_reasoning": {"type": "string", "description": "one or two sentences on the workflow pick"},
-        "confidence": {"type": "number", "description": "0..1 — honest confidence in this whole read"},
-        "reasoning": {"type": "string", "description": "one or two sentences summarising your understanding of the request"},
-        "needs_human": {"type": "boolean", "description": "true if ambiguous or high-stakes enough that a human should confirm the routing"},
-    },
-    "required": ["category", "complexity", "risk", "urgency", "confidence", "reasoning", "needs_human"],
-}
 
 
 _ATTACHMENT_EXCERPT_CHARS = 1500
@@ -205,27 +177,6 @@ def _form_defs():
     return form_defs()
 
 
-_READ_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string", "description": "one or two sentences: what the requester actually wants"},
-        "mismatches": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"field": {"type": "string"},
-                           "form_says": {"type": "string"},
-                           "text_says": {"type": "string", "description": "what the description or attachment states instead"},
-                           "same": {"type": "boolean", "description": "true if the two actually agree"}},
-            "required": ["field", "form_says", "text_says", "same"]},
-            "description": "facts the description or an attachment states differently from the form (type, value, date, party). Usually empty."},
-        "bespoke_asks": {"type": "array", "items": {"type": "string"},
-                         "description": "asks the standard template will not cover, e.g. counterparty paper, custom terms"},
-        "negotiation_points": {"type": "array", "items": {"type": "string"},
-                               "description": "terms the requester or an attachment signals will be negotiated"},
-    },
-    "required": ["summary", "mismatches", "bespoke_asks", "negotiation_points"],
-}
-
-
 def real_mismatches(items) -> list[str]:
     """The model lists fields that agree as "mismatches" however it is asked not
     to; making it state both sides lets these be dropped here."""
@@ -261,9 +212,9 @@ def aegis_read(db: Session, request: IntakeRequest, *, claude_client=None) -> di
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "intake_form_read", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
-            user_prompt=context + "INTAKE REQUEST:" + user_prompt, input_schema=_READ_SCHEMA,
+            user_prompt=context + "INTAKE REQUEST:" + user_prompt,
             log_input={"user_prompt": user_prompt},
-        ).data
+        ).data.model_dump(mode="json")  # shape: app.ai.output_format.intake_form_read
         lists = ("bespoke_asks", "negotiation_points")
         return {"summary": str(data.get("summary") or "")[:600],
                 "mismatches": real_mismatches(data.get("mismatches")),
@@ -294,10 +245,11 @@ def _triage(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
         # into the except below, which keeps this agent's fallback.
         data = gateway_for(claude_client).structured_sync(
             db, "intake_triage", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
-            user_prompt=user_prompt, input_schema=_SCHEMA,
+            user_prompt=user_prompt,
             log_input={"user_prompt": user_prompt},
         ).data
-        return _to_triage(request, data, catalog)
+        # The feature has an output model, so ``data`` is already validated; the mapping below reads a dict.
+        return _to_triage(request, data.model_dump(mode="json"), catalog)
     except Exception:
         logger.warning("intake triage model call failed for %s", request.id, exc_info=True)
         return _fallback(db, request, degraded=True)

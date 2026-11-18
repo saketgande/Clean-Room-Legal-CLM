@@ -1,0 +1,135 @@
+{
+  "type": "object",
+  "properties": {
+    "counterparty_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The party that SENT the notice (or, for an outbound notice, its recipient). Legal entity name as written."
+    },
+    "counterparty_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The sender's own reference/file number for this notice, if printed on it."
+    },
+    "notice_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "demand",
+        "cease_and_desist",
+        "breach",
+        "termination",
+        "statutory",
+        "recovery",
+        "infringement",
+        "other",
+        null
+      ],
+      "description": "Best-fit category for this notice."
+    },
+    "subject": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A short factual title, under 120 characters."
+    },
+    "notice_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Date printed on the notice, as YYYY-MM-DD."
+    },
+    "deadline": {
+      "type": "object",
+      "description": "The notice's own wording of the response deadline. Copy it; never compute a date.",
+      "properties": {
+        "stated": {
+          "type": "boolean",
+          "description": "True only when the notice itself writes a deadline (a date or a period). False when none is written or one would come only from a statute or custom."
+        },
+        "explicit_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A calendar date the notice writes out as the deadline, as YYYY-MM-DD. Null when it gives a period."
+        },
+        "period_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "clear_days": {
+          "type": "boolean",
+          "description": "True only when the notice says the days are clear days."
+        },
+        "period_unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "days",
+            "business_days",
+            "weeks",
+            "months",
+            null
+          ]
+        },
+        "runs_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "notice_date",
+            "receipt",
+            "other",
+            null
+          ]
+        },
+        "runs_from_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the period runs from, in the notice's words."
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The sentence that states the deadline."
+        }
+      },
+      "required": [
+        "stated"
+      ]
+    },
+    "demanded_action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "One or two sentences: what the notice demands, and by when."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0.0-1.0 — how confident you are overall. Be honest; low for a scanned or partial document."
+    }
+  },
+  "required": [
+    "confidence"
+  ]
+}

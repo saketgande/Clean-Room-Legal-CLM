@@ -1,0 +1,100 @@
+{
+  "feature": "portfolio_filter",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "contract_types": [
+      "NDA"
+    ],
+    "counterparty": null,
+    "governing_law": null,
+    "stages": [],
+    "risk_bands": [],
+    "effective": null,
+    "expires": {
+      "from_date": null,
+      "to_date": null,
+      "year": 2027,
+      "within_next_days": null,
+      "within_next_months": null,
+      "within_last_days": null,
+      "period": null
+    },
+    "value_min": null,
+    "value_max": null,
+    "currency": null,
+    "wording": [],
+    "lacks": [],
+    "not_checkable": [],
+    "count_only": false,
+    "is_list_question": true
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "portfolio_filter",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1651,
+      "completion_tokens": 81,
+      "total_tokens": 1732,
+      "latency_ms": 1736.3407940065372,
+      "validated_output": {
+        "contract_types": [
+          "NDA"
+        ],
+        "counterparty": null,
+        "governing_law": null,
+        "stages": [],
+        "risk_bands": [],
+        "effective": null,
+        "expires": {
+          "from_date": null,
+          "to_date": null,
+          "year": 2027,
+          "within_next_days": null,
+          "within_next_months": null,
+          "within_last_days": null,
+          "period": null
+        },
+        "value_min": null,
+        "value_max": null,
+        "currency": null,
+        "wording": [],
+        "lacks": [],
+        "not_checkable": [],
+        "count_only": false,
+        "is_list_question": true
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "contract_types": [
+      "NDA"
+    ],
+    "counterparty": null,
+    "governing_law": null,
+    "stages": [],
+    "risk_bands": [],
+    "effective": null,
+    "expires": {
+      "from_date": null,
+      "to_date": null,
+      "year": 2027,
+      "within_next_days": null,
+      "within_next_months": null,
+      "within_last_days": null,
+      "period": null
+    },
+    "value_min": null,
+    "value_max": null,
+    "currency": null,
+    "wording": [],
+    "lacks": [],
+    "not_checkable": [],
+    "count_only": false,
+    "is_list_question": true
+  }
+}

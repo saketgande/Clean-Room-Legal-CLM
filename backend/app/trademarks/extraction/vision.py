@@ -21,40 +21,6 @@ from app.core.config import settings
 # Must match the "trademark_journal_vision" feature's tool_name (app/ai/gateway/features.py).
 TOOL_NAME = "extract_journal_entries"
 
-INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "entries": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "product_name": {"type": ["string", "null"]},
-                    "mark_type": {
-                        "type": "string",
-                        "enum": ["word", "device", "combination", "sound", "other"],
-                    },
-                    "tm_id": {"type": "string"},
-                    "tm_date": {"type": "string"},
-                    "address": {"type": "string"},
-                    "used_since": {"type": ["string", "null"]},
-                    "proposed_to_be_used": {"type": "boolean"},
-                    "jurisdiction": {"type": ["string", "null"]},
-                    "goods_services": {"type": ["string", "null"]},
-                    "has_product_image": {"type": "boolean"},
-                },
-                "required": [
-                    "product_name", "mark_type", "tm_id", "tm_date", "address",
-                    "used_since", "proposed_to_be_used", "jurisdiction",
-                    "goods_services", "has_product_image",
-                ],
-            },
-        }
-    },
-    "required": ["entries"],
-}
-
-
 @dataclass
 class VisionEntry:
     product_name: str | None
@@ -96,8 +62,7 @@ async def extract_journal_page(
         user_prompt="Extract every entry on this page.",
         image_bytes=page_png,
         image_media_type="image/png",
-        input_schema=INPUT_SCHEMA,
         log_input={"page_number": page_number, "image_bytes": len(page_png)},
     )
-    entries = result.data.get("entries", [])
+    entries = result.data.model_dump(mode="json")["entries"]
     return [VisionEntry(**entry) for entry in entries]

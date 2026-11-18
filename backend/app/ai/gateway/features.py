@@ -132,6 +132,38 @@ _AGENT_CALL_SHAPE: dict[str, tuple[str | None, int]] = {
 }
 
 
+# Output models for agents, by feature key (skills carry theirs in the skill registry). An agent listed here
+# is validated by its model and sends Claude that model's JSON Schema; one not listed keeps the dict its
+# own module passes in. The models are pure Pydantic (app/ai/output_format) so they outlive this gateway.
+def _agent_output_models() -> dict[str, type[BaseModel]]:
+    from app.ai.output_format.email_triage import EmailTriageOutput
+    from app.ai.output_format.flow_router import FlowRouterOutput
+    from app.ai.output_format.intake_form_read import IntakeFormReadOutput
+    from app.ai.output_format.intake_triage import IntakeTriageOutput
+    from app.ai.output_format.litigation_intake import LitigationIntakeOutput
+    from app.ai.output_format.notice_extraction import NoticeExtractionOutput
+
+    return {
+        "intake_triage": IntakeTriageOutput,
+        "flow_router": FlowRouterOutput,
+        "litigation_intake_agent": LitigationIntakeOutput,
+        "notice_extraction_agent": NoticeExtractionOutput,
+        "intake_form_read": IntakeFormReadOutput,
+        "email_triage_agent": EmailTriageOutput,
+    }
+
+
+# Agents whose prompt text changed after their first release (the shape wording moved into the output model).
+# Everything else stays at the shared "1.0.0". The ledger's prompt_hash changes either way; this makes it readable.
+_AGENT_PROMPT_VERSIONS = {
+    "flow_router": "1.1.0",
+    "litigation_intake_agent": "1.1.0",
+    "notice_extraction_agent": "1.1.0",
+    "intake_form_read": "1.1.0",
+    "email_triage_agent": "1.1.0",
+}
+
+
 # Task features: (key, tool_name, max_tokens, temperature). Values are what the
 # call sites sent before they moved onto the gateway. tool_name None = a
 # plain-text answer (called with gateway.text()), like the plain-text agents.
@@ -149,6 +181,30 @@ _TASKS: tuple[tuple[str, str | None, int, float], ...] = (
     ("trademark_conflict_explain", None, 120, 0.3),
     ("trademark_portfolio_digest", None, 200, 0.4),
 )
+
+
+# Output models for task features, by key. Same idea as _agent_output_models; kept apart because tasks are
+# declared in _TASKS. A task listed here also gets the version in _TASK_PROMPT_VERSIONS.
+def _task_output_models() -> dict[str, type[BaseModel]]:
+    from app.ai.output_format.clause_hierarchy import ClauseHierarchyOutput
+    from app.ai.output_format.playbook_expand import PlaybookExpandOutput
+    from app.ai.output_format.renewal_recommendation import RenewalRecommendationOutput
+    from app.ai.output_format.trademark_class_suggest import NiceClassSuggestion
+    from app.ai.output_format.trademark_journal_vision import JournalPageOutput
+
+    return {
+        "renewal_recommendation": RenewalRecommendationOutput,
+        "playbook_expand": PlaybookExpandOutput,
+        "trademark_journal_vision": JournalPageOutput,
+        "clause_hierarchy": ClauseHierarchyOutput,
+        "trademark_class_suggest": NiceClassSuggestion,
+    }
+
+
+_TASK_PROMPT_VERSIONS = {
+    "renewal_recommendation": "1.1.0",
+    "trademark_journal_vision": "1.1.0",
+}
 
 
 class UnknownAIFeature(KeyError):
@@ -206,6 +262,7 @@ def build_feature_registry() -> FeatureRegistry:
                 output_model=spec.output_model,
             )
         )
+    agent_models = _agent_output_models()
     for agent in STANDALONE_AGENTS:
         label, category = _label(agent.id)
         tool_name, max_tokens = _AGENT_CALL_SHAPE[agent.id]
@@ -217,14 +274,16 @@ def build_feature_registry() -> FeatureRegistry:
                 category=category,
                 prompt_key=agent.prompt_key,
                 # get_agent_prompt's default_version today.
-                default_prompt_version="1.0.0",
+                default_prompt_version=_AGENT_PROMPT_VERSIONS.get(agent.id, "1.0.0"),
                 layout=PromptLayout.FEATURE_SYSTEM,
                 guard=True,
                 max_tokens=max_tokens,
                 temperature=agent.temperature,
                 tool_name=tool_name,
+                output_model=agent_models.get(agent.id),
             )
         )
+    task_models = _task_output_models()
     for key, tool_name, max_tokens, temperature in _TASKS:
         label, category = _label(key)
         features.append(
@@ -234,12 +293,13 @@ def build_feature_registry() -> FeatureRegistry:
                 label=label,
                 category=category,
                 prompt_key=key,
-                default_prompt_version="1.0.0",
+                default_prompt_version=_TASK_PROMPT_VERSIONS.get(key, "1.0.0"),
                 layout=PromptLayout.FEATURE_SYSTEM,
                 guard=True,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 tool_name=tool_name,
+                output_model=task_models.get(key),
             )
         )
     return FeatureRegistry(features)

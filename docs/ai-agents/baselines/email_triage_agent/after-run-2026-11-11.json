@@ -1,0 +1,22 @@
+{
+  "feature": "email_triage_agent",
+  "run": "after output model + trimmed prompt (1.1.0)",
+  "request": "'Please review attached NDA' (same sample as the earlier baseline)",
+  "ledger": {
+    "prompt_version": "1.1.0",
+    "prompt_tokens": 461,
+    "completion_tokens": 75,
+    "latency_ms": 1853,
+    "status": "succeeded",
+    "stop_reason": "tool_use"
+  },
+  "before": {
+    "prompt_tokens": 1266,
+    "completion_tokens": 75
+  },
+  "model_output": {
+    "is_clm_related": true,
+    "category": "NDA",
+    "confidence": 0.93
+  }
+}

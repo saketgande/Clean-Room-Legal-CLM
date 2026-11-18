@@ -1,0 +1,85 @@
+{
+  "feature": "contract_brain_answer",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "answer": "In the Acme Services Agreement, the Supplier's total liability is capped at the fees paid in the preceding 12 months. Additionally, neither party is liable for indirect loss.",
+    "citations": [
+      {
+        "label": "Limitation of Liability Cap",
+        "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Exclusion of Indirect Loss",
+        "quote": "Neither party is liable for indirect loss.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ],
+    "related_contract_ids": [],
+    "confidence": "high",
+    "limitations": "The cap is expressed as a rolling 12-month fee figure rather than a fixed monetary amount; the exact dollar value of the cap will depend on fees actually paid in the relevant period."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "contract_brain_answer",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 2253,
+      "completion_tokens": 242,
+      "total_tokens": 2495,
+      "latency_ms": 4050.1375749954605,
+      "validated_output": {
+        "answer": "In the Acme Services Agreement, the Supplier's total liability is capped at the fees paid in the preceding 12 months. Additionally, neither party is liable for indirect loss.",
+        "citations": [
+          {
+            "label": "Limitation of Liability Cap",
+            "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          },
+          {
+            "label": "Exclusion of Indirect Loss",
+            "quote": "Neither party is liable for indirect loss.",
+            "page_number": null,
+            "start_char": null,
+            "end_char": null
+          }
+        ],
+        "related_contract_ids": [],
+        "confidence": "high",
+        "limitations": "The cap is expressed as a rolling 12-month fee figure rather than a fixed monetary amount; the exact dollar value of the cap will depend on fees actually paid in the relevant period."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "answer": "In the Acme Services Agreement, the Supplier's total liability is capped at the fees paid in the preceding 12 months. Additionally, neither party is liable for indirect loss.",
+    "citations": [
+      {
+        "label": "Limitation of Liability Cap",
+        "quote": "The Supplier's total liability under this Agreement shall not exceed the fees paid in the preceding 12 months.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      },
+      {
+        "label": "Exclusion of Indirect Loss",
+        "quote": "Neither party is liable for indirect loss.",
+        "page_number": null,
+        "start_char": null,
+        "end_char": null
+      }
+    ],
+    "related_contract_ids": [],
+    "confidence": "high",
+    "limitations": "The cap is expressed as a rolling 12-month fee figure rather than a fixed monetary amount; the exact dollar value of the cap will depend on fees actually paid in the relevant period."
+  }
+}

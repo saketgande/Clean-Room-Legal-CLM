@@ -1,0 +1,26 @@
+{
+  "feature": "trademark_conflict_explain",
+  "kind": "task",
+  "returned_by_app_function": "The 91% match against a registered \"ZENTARIX PLUS\" mark in India is a meaningful risk — your mark is nearly identical, differing only by the addition of \"PLUS,\" which examiners typically treat as a minor, non-distinctive variation that does not sufficiently distinguish the two marks. Since both would likely cover overlapping goods in the health/wellness space, the Indian trademark office could refuse your application on grounds of likelihood of confusion with this existing registration.",
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "trademark_conflict_explain",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "end_turn",
+      "prompt_tokens": 178,
+      "completion_tokens": 102,
+      "total_tokens": 280,
+      "latency_ms": 4256.370388997311,
+      "validated_output": {
+        "text": "The 91% match against a registered \"ZENTARIX PLUS\" mark in India is a meaningful risk — your mark is nearly identical, differing only by the addition of \"PLUS,\" which examiners typically treat as a minor, non-distinctive variation that does not sufficiently distinguish the two marks. Since both would likely cover overlapping goods in the health/wellness space, the Indian trademark office could refuse your application on grounds of likelihood of confusion with this existing registration."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "text": "The 91% match against a registered \"ZENTARIX PLUS\" mark in India is a meaningful risk — your mark is nearly identical, differing only by the addition of \"PLUS,\" which examiners typically treat as a minor, non-distinctive variation that does not sufficiently distinguish the two marks. Since both would likely cover overlapping goods in the health/wellness space, the Indian trademark office could refuse your application on grounds of likelihood of confusion with this existing registration."
+  }
+}

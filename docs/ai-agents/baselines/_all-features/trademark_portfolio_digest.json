@@ -1,0 +1,26 @@
+{
+  "feature": "trademark_portfolio_digest",
+  "kind": "task",
+  "returned_by_app_function": "Twelve new trademark records were added to the portfolio in the last 24 hours, with nine filed in India and three in the United States. The India batch is notably large relative to typical daily volumes and may warrant a quick review to confirm all nine filings are expected and correctly categorized. The mark NOVARA (US) is worth a closer look, as it shares similarity with Novara, a well-known REI cycling brand, which could raise potential conflict concerns depending on the goods and services class. No unusual jurisdictions were flagged this cycle.",
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "trademark_portfolio_digest",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "end_turn",
+      "prompt_tokens": 197,
+      "completion_tokens": 119,
+      "total_tokens": 316,
+      "latency_ms": 3788.338307997037,
+      "validated_output": {
+        "text": "Twelve new trademark records were added to the portfolio in the last 24 hours, with nine filed in India and three in the United States. The India batch is notably large relative to typical daily volumes and may warrant a quick review to confirm all nine filings are expected and correctly categorized. The mark NOVARA (US) is worth a closer look, as it shares similarity with Novara, a well-known REI cycling brand, which could raise potential conflict concerns depending on the goods and services class. No unusual jurisdictions were flagged this cycle."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "text": "Twelve new trademark records were added to the portfolio in the last 24 hours, with nine filed in India and three in the United States. The India batch is notably large relative to typical daily volumes and may warrant a quick review to confirm all nine filings are expected and correctly categorized. The mark NOVARA (US) is worth a closer look, as it shares similarity with Novara, a well-known REI cycling brand, which could raise potential conflict concerns depending on the goods and services class. No unusual jurisdictions were flagged this cycle."
+  }
+}

@@ -6665,7 +6665,7 @@
   "metadata": {
     "counts": {
       "celery_task": 5,
-      "domain_backend": 39,
+      "domain_backend": 40,
       "domain_frontend": 25,
       "edges_total": 1184,
       "endpoint": 372,
@@ -6679,8 +6679,8 @@
       "ts_interface": 323,
       "ui_primitive": 29
     },
-    "generated_at": "2026-11-04T13:56:18Z",
-    "git_head": "2ecd03ba6e2cd8935bf374ecff6d203b9b3d05e6",
+    "generated_at": "2026-11-12T11:57:14Z",
+    "git_head": "34625c8e91237715eee3538751973100bdb58d3d",
     "warnings": [
       "59 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6694,9 +6694,10 @@
       "no frontend Api group matched for backend domain 'analytics' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'docstudio' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'documents' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'ideal' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'matters' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'organizations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'prompt_library' (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6933,16 +6934,6 @@
     },
     {
       "files": [],
-      "id": "domain:backend:docstudio",
-      "name": "docstudio",
-      "owner_agents": [
-        "(none)"
-      ],
-      "path": "backend/app/docstudio",
-      "type": "domain_backend"
-    },
-    {
-      "files": [],
       "id": "domain:backend:documents",
       "name": "documents",
       "owner_agents": [
@@ -6984,6 +6975,16 @@
       "type": "domain_backend"
     },
     {
+      "files": [],
+      "id": "domain:backend:ideal",
+      "name": "ideal",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/ideal",
+      "type": "domain_backend"
+    },
+    {
       "files": [
         "models.py",
         "routes.py",
@@ -7022,6 +7023,16 @@
         "db-engineer"
       ],
       "path": "backend/app/jobs",
+      "type": "domain_backend"
+    },
+    {
+      "files": [],
+      "id": "domain:backend:matters",
+      "name": "matters",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/matters",
       "type": "domain_backend"
     },
     {
@@ -19545,6 +19556,7 @@
     },
     {
       "components": [
+        "_designer.test.tsx",
         "_designer.tsx"
       ],
       "domain": "workflow-builder",

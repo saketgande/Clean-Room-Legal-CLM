@@ -1,0 +1,96 @@
+{
+  "feature": "intake_triage",
+  "kind": "agent",
+  "returned_by_app_function": {
+    "category": "NDA",
+    "agent_id": "nda_agent",
+    "confidence": 0.92,
+    "complexity": "standard",
+    "risk_flag": "medium",
+    "source": "llm",
+    "understanding": {
+      "sub_type": "NDA — counterparty paper (their draft)",
+      "urgency": "High",
+      "business_unit": "R&D",
+      "estimated_value": 20000000,
+      "jurisdiction": "India",
+      "key_asks": [
+        "Review Zenith Pharma's NDA draft (their paper, not our template)",
+        "Turnaround needed before Friday to enable data sharing"
+      ],
+      "missing_info": [
+        "Zenith Pharma's NDA draft document not yet attached/uploaded"
+      ],
+      "reasoning": "R&D (Priya) needs Legal to review an NDA draft sent by Zenith Pharma (Mumbai) for a joint formulation study. The counterparty insists on using their own paper rather than our template, and data sharing must begin by Friday, making this time-critical. The deal value is approximately INR 2 crore."
+    },
+    "needs_info": true,
+    "flow_suggestion": {
+      "flow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+      "flow_name": "NDA — their paper",
+      "confidence": 0.92,
+      "reasoning": "The counterparty (Zenith Pharma) insists on using their own NDA paper, which maps directly to the 'NDA — their paper' workflow (id: a54ca0a9-0305-486e-bfee-f4050613ea3c): AI review against our NDA playbook → Legal review → Privacy review → Counterparty negotiation.",
+      "alternatives": [],
+      "needs_human": false,
+      "source": "llm"
+    }
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "intake_triage",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 4575,
+      "completion_tokens": 554,
+      "total_tokens": 5129,
+      "latency_ms": 11453.401785001915,
+      "validated_output": {
+        "category": "NDA",
+        "sub_type": "NDA — counterparty paper (their draft)",
+        "complexity": "standard",
+        "risk": "medium",
+        "urgency": "High",
+        "confidence": 0.92,
+        "reasoning": "R&D (Priya) needs Legal to review an NDA draft sent by Zenith Pharma (Mumbai) for a joint formulation study. The counterparty insists on using their own paper rather than our template, and data sharing must begin by Friday, making this time-critical. The deal value is approximately INR 2 crore.",
+        "business_unit": "R&D",
+        "estimated_value": 20000000,
+        "jurisdiction": "India",
+        "key_asks": [
+          "Review Zenith Pharma's NDA draft (their paper, not our template)",
+          "Turnaround needed before Friday to enable data sharing"
+        ],
+        "missing_info": [
+          "Zenith Pharma's NDA draft document not yet attached/uploaded"
+        ],
+        "recommended_workflow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+        "workflow_reasoning": "The counterparty (Zenith Pharma) insists on using their own NDA paper, which maps directly to the 'NDA — their paper' workflow (id: a54ca0a9-0305-486e-bfee-f4050613ea3c): AI review against our NDA playbook → Legal review → Privacy review → Counterparty negotiation.",
+        "needs_human": false
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "category": "NDA",
+    "sub_type": "NDA — counterparty paper (their draft)",
+    "complexity": "standard",
+    "risk": "medium",
+    "urgency": "High",
+    "confidence": 0.92,
+    "reasoning": "R&D (Priya) needs Legal to review an NDA draft sent by Zenith Pharma (Mumbai) for a joint formulation study. The counterparty insists on using their own paper rather than our template, and data sharing must begin by Friday, making this time-critical. The deal value is approximately INR 2 crore.",
+    "business_unit": "R&D",
+    "estimated_value": 20000000,
+    "jurisdiction": "India",
+    "key_asks": [
+      "Review Zenith Pharma's NDA draft (their paper, not our template)",
+      "Turnaround needed before Friday to enable data sharing"
+    ],
+    "missing_info": [
+      "Zenith Pharma's NDA draft document not yet attached/uploaded"
+    ],
+    "recommended_workflow_id": "a54ca0a9-0305-486e-bfee-f4050613ea3c",
+    "workflow_reasoning": "The counterparty (Zenith Pharma) insists on using their own NDA paper, which maps directly to the 'NDA — their paper' workflow (id: a54ca0a9-0305-486e-bfee-f4050613ea3c): AI review against our NDA playbook → Legal review → Privacy review → Counterparty negotiation.",
+    "needs_human": false
+  }
+}

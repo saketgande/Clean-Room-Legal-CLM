@@ -1,0 +1,79 @@
+{
+  "feature": "privacy_incident_assessment",
+  "kind": "skill",
+  "returned_by_app_function": {
+    "severity": "high",
+    "notification_required": true,
+    "notification_deadline_hours": 72,
+    "affected_data_categories": [
+      "full names",
+      "email addresses",
+      "phone numbers"
+    ],
+    "estimated_affected_count": "approximately 400 customers",
+    "recommended_immediate_actions": [
+      "Obtain written confirmation from the unintended recipient that the spreadsheet has been permanently deleted and not forwarded or copied",
+      "Notify the Data Protection Officer (DPO) immediately and formally log the incident in the breach register",
+      "Preserve all relevant email metadata and transmission logs for the misdirected email",
+      "Assess notification obligations to the relevant data protection authority within the applicable statutory window (e.g., 72 hours under GDPR/DPDP-style regimes)",
+      "Review and tighten the contractor's data handling procedures and access controls to prevent recurrence"
+    ],
+    "rationale": "A marketing contractor misdirected a spreadsheet containing names, email addresses, and phone numbers of approximately 400 customers to an unintended external recipient. This constitutes a meaningful-scale exposure of standard personal contact data to an unauthorized third party, warranting a \"high\" severity rating. No special-category data (e.g., financial, health) was involved, but the external disclosure at this scale and the involvement of an outside party elevates it above \"medium.\" The recipient has been asked to delete the data, but confirmation of deletion has not been established.",
+    "confidence": 0.88
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "privacy_incident_assessment",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1890,
+      "completion_tokens": 429,
+      "total_tokens": 2319,
+      "latency_ms": 9884.140848000243,
+      "validated_output": {
+        "severity": "high",
+        "notification_required": true,
+        "notification_deadline_hours": 72,
+        "affected_data_categories": [
+          "full names",
+          "email addresses",
+          "phone numbers"
+        ],
+        "estimated_affected_count": "approximately 400 customers",
+        "recommended_immediate_actions": [
+          "Obtain written confirmation from the unintended recipient that the spreadsheet has been permanently deleted and not forwarded or copied",
+          "Notify the Data Protection Officer (DPO) immediately and formally log the incident in the breach register",
+          "Preserve all relevant email metadata and transmission logs for the misdirected email",
+          "Assess notification obligations to the relevant data protection authority within the applicable statutory window (e.g., 72 hours under GDPR/DPDP-style regimes)",
+          "Review and tighten the contractor's data handling procedures and access controls to prevent recurrence"
+        ],
+        "rationale": "A marketing contractor misdirected a spreadsheet containing names, email addresses, and phone numbers of approximately 400 customers to an unintended external recipient. This constitutes a meaningful-scale exposure of standard personal contact data to an unauthorized third party, warranting a \"high\" severity rating. No special-category data (e.g., financial, health) was involved, but the external disclosure at this scale and the involvement of an outside party elevates it above \"medium.\" The recipient has been asked to delete the data, but confirmation of deletion has not been established.",
+        "confidence": 0.88
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "severity": "high",
+    "notification_required": true,
+    "notification_deadline_hours": 72,
+    "affected_data_categories": [
+      "full names",
+      "email addresses",
+      "phone numbers"
+    ],
+    "estimated_affected_count": "approximately 400 customers",
+    "recommended_immediate_actions": [
+      "Obtain written confirmation from the unintended recipient that the spreadsheet has been permanently deleted and not forwarded or copied",
+      "Notify the Data Protection Officer (DPO) immediately and formally log the incident in the breach register",
+      "Preserve all relevant email metadata and transmission logs for the misdirected email",
+      "Assess notification obligations to the relevant data protection authority within the applicable statutory window (e.g., 72 hours under GDPR/DPDP-style regimes)",
+      "Review and tighten the contractor's data handling procedures and access controls to prevent recurrence"
+    ],
+    "rationale": "A marketing contractor misdirected a spreadsheet containing names, email addresses, and phone numbers of approximately 400 customers to an unintended external recipient. This constitutes a meaningful-scale exposure of standard personal contact data to an unauthorized third party, warranting a \"high\" severity rating. No special-category data (e.g., financial, health) was involved, but the external disclosure at this scale and the involvement of an outside party elevates it above \"medium.\" The recipient has been asked to delete the data, but confirmation of deletion has not been established.",
+    "confidence": 0.88
+  }
+}

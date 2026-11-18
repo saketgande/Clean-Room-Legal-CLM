@@ -1,0 +1,92 @@
+{
+  "feature": "intake_form_read",
+  "note": "model_output is the tool input the model returned (ledger validated_output), before the code filters it; stored_read is what ai_triage.read keeps.",
+  "request": {
+    "ref": "REQ-4032",
+    "type_label": "New agreement · NDA",
+    "priority": "Medium",
+    "department": "Procurement",
+    "description": "This is really a supply agreement for about INR 50 lakh over two years, not an NDA.",
+    "field_values": {
+      "paper": "Their paper",
+      "entity": "Aegis Test Pvt Ltd",
+      "purpose": "This is really a supply agreement for about INR 50 lakh over two years, not an NDA.",
+      "nda_kind": "Mutual",
+      "nda_term": "2 years",
+      "entity_id": "80d72ca4-f52b-48ba-ae33-65427ee90b80",
+      "department": "Procurement",
+      "start_date": "2026-12-01",
+      "counterparty": "Acme Components Ltd",
+      "request_form": "new_agreement",
+      "governing_law": "India",
+      "personal_data": "No",
+      "agreement_type": "NDA",
+      "cp_signer_name": "Rahul Verma",
+      "counterparty_id": "6a28c9ff-5e36-4f81-a022-bc65b645bcf8",
+      "cp_signer_email": "rahul.verma@acme-components.example"
+    }
+  },
+  "ledger": {
+    "id": "a436ed16-34fd-4b99-8885-ed30cf078386",
+    "prompt_key": "intake_form_read",
+    "prompt_version": "1.0.0",
+    "model": "claude-sonnet-4-6",
+    "status": "succeeded",
+    "stop_reason": "tool_use",
+    "prompt_tokens": 1522,
+    "completion_tokens": 321,
+    "total_tokens": 1843,
+    "latency_ms": 13840.518314000292,
+    "created_at": "2026-11-05T12:01:44.928415+00:00"
+  },
+  "model_output": {
+    "summary": "The requester wants a supply agreement with Acme Components Ltd worth approximately INR 50 lakh over two years, but has mistakenly filed it as an NDA. The lawyer should confirm the correct agreement type before proceeding.",
+    "mismatches": [
+      {
+        "field": "agreement_type",
+        "form_says": "NDA",
+        "text_says": "Supply agreement for approximately INR 50 lakh over two years",
+        "same": false
+      },
+      {
+        "field": "value",
+        "form_says": "(no value stated on form)",
+        "text_says": "INR 50 lakh",
+        "same": false
+      }
+    ],
+    "bespoke_asks": [
+      "Counterparty's own paper requested (their paper) — standard NDA template will not apply; and if reclassified as a supply agreement, a supply agreement template on counterparty paper would be required"
+    ],
+    "negotiation_points": [
+      "Agreement type/reclassification from NDA to supply agreement must be resolved before any other terms can be negotiated",
+      "Contract value (~INR 50 lakh) and two-year duration will need to be formalised in the correct instrument"
+    ]
+  },
+  "stored_read": {
+    "summary": "The requester wants a supply agreement with Acme Components Ltd worth approximately INR 50 lakh over two years, but has mistakenly filed it as an NDA. The lawyer should confirm the correct agreement type before proceeding.",
+    "mismatches": [
+      "agreement_type: the form says NDA; the text says Supply agreement for approximately INR 50 lakh over two years",
+      "value: the form says (no value stated on form); the text says INR 50 lakh"
+    ],
+    "bespoke_asks": [
+      "Counterparty's own paper requested (their paper) — standard NDA template will not apply; and if reclassified as a supply agreement, a supply agreement template on counterparty paper would be required"
+    ],
+    "negotiation_points": [
+      "Agreement type/reclassification from NDA to supply agreement must be resolved before any other terms can be negotiated",
+      "Contract value (~INR 50 lakh) and two-year duration will need to be formalised in the correct instrument"
+    ]
+  },
+  "stored_ai_triage_keys": [
+    "agent_id",
+    "category",
+    "complexity",
+    "confidence",
+    "flow_suggestion",
+    "needs_info",
+    "read",
+    "risk_flag",
+    "source",
+    "understanding"
+  ]
+}

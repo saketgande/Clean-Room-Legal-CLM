@@ -1,0 +1,77 @@
+{
+  "feature": "notice_extraction_agent",
+  "kind": "agent",
+  "returned_by_app_function": {
+    "counterparty_name": "Acme Components Ltd",
+    "counterparty_ref": "ACM/LGL/2026/114",
+    "notice_type": "demand",
+    "subject": "Demand for payment of INR 15,00,000 — Invoice No. 4471",
+    "notice_date": "2026-11-02",
+    "deadline": {
+      "stated": true,
+      "explicit_date": null,
+      "period_count": 15,
+      "period_unit": "days",
+      "clear_days": false,
+      "runs_from": "receipt",
+      "runs_from_text": "of receipt of this notice",
+      "quote": "You are called upon to pay the said sum within fifteen (15) days of receipt of this notice, failing which our client shall initiate proceedings at your risk as to costs."
+    },
+    "demanded_action": "Pay invoice no. 4471 for INR 15,00,000 within fifteen (15) days of receipt of this notice, failing which legal proceedings will be initiated.",
+    "confidence": 0.97,
+    "source": "llm"
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "notice_extraction_agent",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 648,
+      "completion_tokens": 338,
+      "total_tokens": 986,
+      "latency_ms": 4641.088468000817,
+      "validated_output": {
+        "confidence": 0.97,
+        "counterparty_name": "Acme Components Ltd",
+        "counterparty_ref": "ACM/LGL/2026/114",
+        "notice_date": "2026-11-02",
+        "notice_type": "demand",
+        "subject": "Demand for payment of INR 15,00,000 — Invoice No. 4471",
+        "demanded_action": "Pay invoice no. 4471 for INR 15,00,000 within fifteen (15) days of receipt of this notice, failing which legal proceedings will be initiated.",
+        "deadline": {
+          "stated": true,
+          "explicit_date": null,
+          "period_count": 15,
+          "period_unit": "days",
+          "runs_from": "receipt",
+          "runs_from_text": "of receipt of this notice",
+          "clear_days": false,
+          "quote": "You are called upon to pay the said sum within fifteen (15) days of receipt of this notice, failing which our client shall initiate proceedings at your risk as to costs."
+        }
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "confidence": 0.97,
+    "counterparty_name": "Acme Components Ltd",
+    "counterparty_ref": "ACM/LGL/2026/114",
+    "notice_date": "2026-11-02",
+    "notice_type": "demand",
+    "subject": "Demand for payment of INR 15,00,000 — Invoice No. 4471",
+    "demanded_action": "Pay invoice no. 4471 for INR 15,00,000 within fifteen (15) days of receipt of this notice, failing which legal proceedings will be initiated.",
+    "deadline": {
+      "stated": true,
+      "explicit_date": null,
+      "period_count": 15,
+      "period_unit": "days",
+      "runs_from": "receipt",
+      "runs_from_text": "of receipt of this notice",
+      "clear_days": false,
+      "quote": "You are called upon to pay the said sum within fifteen (15) days of receipt of this notice, failing which our client shall initiate proceedings at your risk as to costs."
+    }
+  }
+}

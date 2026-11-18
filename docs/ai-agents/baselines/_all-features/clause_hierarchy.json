@@ -1,0 +1,55 @@
+{
+  "feature": "clause_hierarchy",
+  "kind": "task",
+  "returned_by_app_function": {
+    "answers": [
+      {
+        "seq": 2,
+        "parent": 1
+      },
+      {
+        "seq": 4,
+        "parent": 3
+      }
+    ]
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "clause_hierarchy",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1067,
+      "completion_tokens": 58,
+      "total_tokens": 1125,
+      "latency_ms": 1312.266537999676,
+      "validated_output": {
+        "answers": [
+          {
+            "seq": 2,
+            "parent": 1
+          },
+          {
+            "seq": 4,
+            "parent": 3
+          }
+        ]
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "answers": [
+      {
+        "seq": 2,
+        "parent": 1
+      },
+      {
+        "seq": 4,
+        "parent": 3
+      }
+    ]
+  }
+}

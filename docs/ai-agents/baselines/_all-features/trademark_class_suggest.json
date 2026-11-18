@@ -1,0 +1,31 @@
+{
+  "feature": "trademark_class_suggest",
+  "kind": "task",
+  "returned_by_app_function": {
+    "nice_class": "5",
+    "reasoning": "Herbal mosquito repellent patches for children are insect-repellent preparations, which fall under pharmaceuticals and medical/hygiene preparations in Class 5."
+  },
+  "error": null,
+  "ledger_calls": [
+    {
+      "prompt_key": "trademark_class_suggest",
+      "prompt_version": "1.0.0",
+      "model": "claude-sonnet-4-6",
+      "status": "succeeded",
+      "stop_reason": "tool_use",
+      "prompt_tokens": 1272,
+      "completion_tokens": 86,
+      "total_tokens": 1358,
+      "latency_ms": 2932.434012000158,
+      "validated_output": {
+        "nice_class": "5",
+        "reasoning": "Herbal mosquito repellent patches for children are insect-repellent preparations, which fall under pharmaceuticals and medical/hygiene preparations in Class 5."
+      },
+      "error_class": null
+    }
+  ],
+  "model_output": {
+    "nice_class": "5",
+    "reasoning": "Herbal mosquito repellent patches for children are insect-repellent preparations, which fall under pharmaceuticals and medical/hygiene preparations in Class 5."
+  }
+}

@@ -44,7 +44,7 @@ def test_a_clear_request_to_change_something_goes_straight_to_the_confirm_card()
     assert "Confirm / Cancel card" in prompt
     assert "Shall I go ahead?" in prompt  # named so the model knows exactly what not to write
     assert "do not ask" in tool_registry.get("advance_contract_stage").description.lower()
-    assert skill_registry.get("assistant_streaming").prompt_version == "1.0.4"
+    assert skill_registry.get("assistant_streaming").prompt_version == "1.1.0"
 
 
 def test_the_review_prompts_tell_the_model_which_way_a_term_helps():
@@ -61,8 +61,9 @@ def test_the_review_prompts_tell_the_model_which_way_a_term_helps():
         # playbook_review moved to 1.0.2 when it stopped listing compliant clauses as deviations,
         # then to 1.0.5 as it gained `position` (an item it finds at the preferred position is
         # discarded) and was told to judge each rule as written (no extra floors, no "might be read
-        # another way", no outside law the rules do not mention).
-        assert skill_registry.get(key).prompt_version == {"playbook_review": "1.0.7"}.get(key, "1.0.1")
+        # another way", no outside law the rules do not mention). Both review prompts went to 1.1.0 on
+        # 2026-11-12 when their answer-shape blocks moved into the output models.
+        assert skill_registry.get(key).prompt_version == {"playbook_review": "1.1.0"}.get(key, "1.1.0")
 
 
 def test_the_assistant_is_told_how_to_compare_versions_and_not_to_invent_screens():
@@ -78,7 +79,7 @@ def test_the_assistant_is_told_how_to_compare_versions_and_not_to_invent_screens
     assert "<about_the_app>" in prompt and "Never name a tab" in prompt
     assert "There is no Versions tab or Version History panel" in prompt
     # the new text ships as a new prompt version, so runs can be told apart
-    assert skill_registry.get("assistant_streaming").prompt_version == "1.0.4"
+    assert skill_registry.get("assistant_streaming").prompt_version == "1.1.0"
 
 
 def test_every_screen_the_prompt_names_is_in_the_editor():
